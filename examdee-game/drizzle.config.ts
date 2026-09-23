@@ -8,5 +8,6 @@ try {
 export default defineConfig({
   schema: "./src/db/schema.ts",
   dialect: "postgresql",
-  dbCredentials: { url: process.env.DATABASE_URL! },
+  // Neon trên Vercel có thêm DATABASE_URL_UNPOOLED (kết nối trực tiếp) — dùng cho việc tạo bảng
+  dbCredentials: { url: (process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL)! },
 });

@@ -1,6 +1,7 @@
 /**
  * Nạp dữ liệu mẫu: 1 lớp, 1 giáo viên, 5 học sinh, 3 thế giới × 5 level × 15 câu.
- * Chạy: npm run db:seed  (xoá sạch dữ liệu cũ rồi nạp lại)
+ * Chạy: npm run db:seed  (XOÁ SẠCH dữ liệu cũ rồi nạp lại)
+ * Khi deploy dùng db/seed-if-empty.ts — chỉ nạp khi database còn trống.
  */
 import bcrypt from "bcryptjs";
 import { sql } from "drizzle-orm";
@@ -24,7 +25,7 @@ const STUDENTS = [
   ["hs05", "Hoàng Em"],
 ];
 
-async function main() {
+export async function seedAll() {
   console.log("Xoá dữ liệu cũ…");
   await db.execute(
     sql`TRUNCATE attempt_answers, attempts, level_progress, questions, levels, worlds, users, class_rooms CASCADE`,
@@ -32,7 +33,9 @@ async function main() {
 
   const [cls] = await db.insert(schema.classRooms).values({ name: "Lớp 4A" }).returning();
 
-  const teacherHash = await bcrypt.hash("gv123456", 10);
+  // Deploy thật: đặt biến môi trường TEACHER_PASSWORD để không dùng mật khẩu mẫu
+  const teacherPassword = process.env.TEACHER_PASSWORD || "gv123456";
+  const teacherHash = await bcrypt.hash(teacherPassword, 10);
   const studentHash = await bcrypt.hash("123456", 10);
   await db.insert(schema.users).values({
     username: "giaovien",
@@ -74,11 +77,15 @@ async function main() {
     }
   }
 
-  console.log(`Xong: 1 lớp, 1 giáo viên (giaovien / gv123456), ${STUDENTS.length} học sinh (hs01…hs05 / 123456), ${total} câu hỏi.`);
-  process.exit(0);
+  console.log(`Xong: 1 lớp, 1 giáo viên (giaovien / ${process.env.TEACHER_PASSWORD ? "mật khẩu từ TEACHER_PASSWORD" : "gv123456"}), ${STUDENTS.length} học sinh (hs01…hs05 / 123456), ${total} câu hỏi.`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Chạy trực tiếp: tsx db/seed.ts
+if (process.argv[1]?.replace(/\\/g, "/").endsWith("db/seed.ts")) {
+  seedAll()
+    .then(() => process.exit(0))
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
+}

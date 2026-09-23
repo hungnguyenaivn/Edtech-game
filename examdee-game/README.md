@@ -24,7 +24,7 @@ Học sinh đăng nhập → chọn **thế giới** (AI Công nghệ · Toán L
 | Giáo viên (Cô Hoa, Lớp 4A) | `giaovien` | `gv123456` |
 | Học sinh | `hs01` … `hs05` | `123456` |
 
-> Đổi mật khẩu giáo viên trước khi cho học sinh dùng thật (sửa trong `db/seed.ts` hoặc thêm chức năng đổi mật khẩu).
+> Khi deploy thật, đặt biến `TEACHER_PASSWORD` để tài khoản giáo viên không dùng mật khẩu mẫu.
 
 ## Chạy trên máy (khoảng 5 phút)
 
@@ -41,17 +41,21 @@ npm run dev                   # mở http://localhost:3000
 Bản production: `npm run build && npm start`.
 Nạp lại dữ liệu mẫu (**xoá sạch** tiến độ): `npm run db:seed`.
 
-## Deploy (Vercel + Neon) — làm sau
+## Deploy lên mạng (GitHub + Vercel + Neon) — không cần cài gì trên máy
 
-1. **Database** — tạo project trên [neon.tech](https://neon.tech) (miễn phí), chọn region Singapore. Copy chuỗi **Pooled connection** (có `?sslmode=require`).
-2. **Tạo bảng + dữ liệu** — trên máy, đặt `DATABASE_URL` trong `.env` bằng chuỗi Neon rồi chạy `npm run db:setup`.
-3. **Code** — đẩy thư mục này lên một repo GitHub.
-4. **Vercel** — Import repo → Framework: Next.js (tự nhận) → thêm Environment Variables:
-   - `DATABASE_URL` = chuỗi Neon
-   - `SESSION_SECRET` = chuỗi ngẫu nhiên ≥ 32 ký tự (`openssl rand -base64 48`)
-5. Deploy → gửi link cho học sinh. Kiểm tra nhanh: `https://<tên-app>.vercel.app/api/health` trả `{"ok":true}`.
+Khi build trên Vercel, `vercel.json` chạy `npm run vercel-build`: tự tạo bảng → **nạp dữ liệu mẫu nếu database còn trống** → build. Deploy lại lần sau **không xoá** tiến độ của học sinh.
 
-Có thể thay Vercel bằng Render/Railway/Fly (chạy `npm run build` rồi `npm start`), thay Neon bằng Supabase/Postgres bất kỳ.
+1. **GitHub** — tạo repo mới (Private) → *uploading an existing file* → kéo **toàn bộ nội dung bên trong** thư mục `examdee-game` (không kéo chính thư mục) → Commit.
+2. **Vercel → Add New → Project** → Import repo vừa tạo. **Chưa bấm Deploy**, mở *Environment Variables* thêm:
+   - `SESSION_SECRET` = chuỗi ngẫu nhiên ≥ 32 ký tự
+   - `TEACHER_PASSWORD` = mật khẩu cho tài khoản `giaovien` (không đặt thì là `gv123456`)
+3. Bấm **Deploy**. Lần đầu sẽ **báo lỗi thiếu DATABASE_URL — bình thường**, vì chưa có database.
+4. Trong project: tab **Storage → Create Database → Neon** (chọn region Singapore, gói Free) → **Connect Project**, tick cả Production + Preview. Vercel tự thêm `DATABASE_URL`.
+5. Tab **Deployments** → bản mới nhất → **⋯ → Redeploy**. Build log phải có dòng «Database trống — nạp dữ liệu mẫu…».
+6. Kiểm tra: `https://<tên-app>.vercel.app/api/health` trả `{"ok":true}`, rồi đăng nhập `hs01 / 123456`.
+
+Sửa code sau này: sửa file trên GitHub → Vercel tự deploy lại.
+Muốn xoá sạch và nạp lại dữ liệu mẫu: trên máy đặt `DATABASE_URL` (lấy ở Vercel → Settings → Environment Variables) vào `.env` rồi chạy `npm run db:seed`.
 
 ## Kiểm thử tự động
 

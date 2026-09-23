@@ -10,7 +10,8 @@
     "db:push": "drizzle-kit push --force",
     "db:seed": "tsx --env-file=.env db/seed.ts",
     "db:setup": "drizzle-kit push --force && tsx --env-file=.env db/seed.ts",
-    "test:e2e": "node scripts/e2e.cjs"
+    "test:e2e": "node scripts/e2e.cjs",
+    "vercel-build": "drizzle-kit push --force && tsx db/seed-if-empty.ts && next build"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
