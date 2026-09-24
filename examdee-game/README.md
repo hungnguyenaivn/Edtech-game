@@ -46,7 +46,7 @@ Nạp lại dữ liệu mẫu (**xoá sạch** tiến độ): `npm run db:seed`.
 Khi build trên Vercel, `vercel.json` chạy `npm run vercel-build`: tự tạo bảng → **nạp dữ liệu mẫu nếu database còn trống** → build. Deploy lại lần sau **không xoá** tiến độ của học sinh.
 
 1. **GitHub** — tạo repo mới (Private) → *uploading an existing file* → kéo **toàn bộ nội dung bên trong** thư mục `examdee-game` (không kéo chính thư mục) → Commit.
-2. **Vercel → Add New → Project** → Import repo vừa tạo. **Chưa bấm Deploy**, mở *Environment Variables* thêm:
+2. **Vercel → Add New → Project** → Import repo vừa tạo. Nếu code nằm trong thư mục con (vd. `examdee-game/`), ở mục **Root Directory** bấm **Edit** → chọn thư mục đó. **Chưa bấm Deploy**, mở *Environment Variables* thêm:
    - `SESSION_SECRET` = chuỗi ngẫu nhiên ≥ 32 ký tự
    - `TEACHER_PASSWORD` = mật khẩu cho tài khoản `giaovien` (không đặt thì là `gv123456`)
 3. Bấm **Deploy**. Lần đầu sẽ **báo lỗi thiếu DATABASE_URL — bình thường**, vì chưa có database.
