@@ -3,10 +3,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { apiStudent, jsonError } from "@/lib/api";
-import { isLevelUnlocked } from "@/lib/progress";
+import { isLevelUnlocked, wrongQuestions } from "@/lib/progress";
 import { QUESTIONS_PER_LEVEL } from "@/lib/rules";
 
-const Body = z.object({ levelId: z.string().min(1) });
+const Body = z.union([
+  z.object({ levelId: z.string().min(1) }),
+  z.object({ mode: z.literal("REVIEW"), worldSlug: z.string().min(1) }),
+]);
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -23,6 +26,7 @@ export async function POST(req: Request) {
   if (!user) return jsonError("Chưa đăng nhập", 401);
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return jsonError("Dữ liệu không hợp lệ");
+  if ("mode" in parsed.data) return startReview(user.id, parsed.data.worldSlug);
   const { levelId } = parsed.data;
 
   const level = await db.query.levels.findFirst({ where: eq(schema.levels.id, levelId), with: { world: true } });
@@ -48,6 +52,35 @@ export async function POST(req: Request) {
     attemptId: attempt.id,
     level: { id: level.id, number: level.number, title: level.title },
     world: { slug: level.world.slug, name: level.world.name, color: level.world.color },
+    questions: pickedIds.map((id) => {
+      const q = byId.get(id)!;
+      return { id: q.id, type: q.type, prompt: q.prompt, options: q.options };
+    }),
+  });
+}
+
+/** Ôn tập: bốc tối đa 10 câu em còn làm sai trong một thế giới. Không tính sao, không đổi tiến độ. */
+async function startReview(userId: string, worldSlug: string) {
+  const world = await db.query.worlds.findFirst({ where: eq(schema.worlds.slug, worldSlug) });
+  if (!world) return jsonError("Không tìm thấy thế giới", 404);
+  const wrong = await wrongQuestions(userId, worldSlug);
+  if (wrong.length === 0) return jsonError("Em chưa có câu nào cần ôn ở thế giới này. Giỏi quá!", 409);
+
+  const picked = shuffle(wrong).slice(0, QUESTIONS_PER_LEVEL);
+  const pickedIds = picked.map((r) => r.questionId);
+  const rows = await db.select().from(schema.questions).where(inArray(schema.questions.id, pickedIds));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  const [attempt] = await db
+    .insert(schema.attempts)
+    .values({ userId, levelId: picked[0].levelId, mode: "REVIEW", questionIds: pickedIds })
+    .returning();
+
+  return NextResponse.json({
+    attemptId: attempt.id,
+    mode: "REVIEW",
+    level: { id: picked[0].levelId, number: 0, title: "Ôn tập" },
+    world: { slug: world.slug, name: world.name, color: world.color },
     questions: pickedIds.map((id) => {
       const q = byId.get(id)!;
       return { id: q.id, type: q.type, prompt: q.prompt, options: q.options };

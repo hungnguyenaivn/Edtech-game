@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 export type LevelView = {
@@ -94,4 +94,31 @@ export async function classLeaderboard(classId: string) {
     if (i === 0 || r.stars !== rows[i - 1].stars || r.correct !== rows[i - 1].correct) rank = i + 1;
     return { ...r, rank };
   });
+}
+
+/** Câu hỏi em còn làm sai: lần trả lời gần nhất của câu đó là sai (chơi level hay ôn tập đều tính). Câu đang bật mới được tính. */
+export async function wrongQuestions(userId: string, worldSlug?: string) {
+  const rows = await db
+    .select({
+      questionId: schema.attemptAnswers.questionId,
+      isCorrect: schema.attemptAnswers.isCorrect,
+      levelId: schema.questions.levelId,
+      worldSlug: schema.worlds.slug,
+    })
+    .from(schema.attemptAnswers)
+    .innerJoin(schema.attempts, eq(schema.attempts.id, schema.attemptAnswers.attemptId))
+    .innerJoin(schema.questions, eq(schema.questions.id, schema.attemptAnswers.questionId))
+    .innerJoin(schema.levels, eq(schema.levels.id, schema.questions.levelId))
+    .innerJoin(schema.worlds, eq(schema.worlds.id, schema.levels.worldId))
+    .where(and(eq(schema.attempts.userId, userId), eq(schema.questions.active, true)))
+    .orderBy(desc(schema.attemptAnswers.answeredAt));
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) if (!latest.has(r.questionId)) latest.set(r.questionId, r);
+  return [...latest.values()].filter((r) => !r.isCorrect && (!worldSlug || r.worldSlug === worldSlug));
+}
+
+export async function wrongCountsByWorld(userId: string): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const r of await wrongQuestions(userId)) out[r.worldSlug] = (out[r.worldSlug] ?? 0) + 1;
+  return out;
 }

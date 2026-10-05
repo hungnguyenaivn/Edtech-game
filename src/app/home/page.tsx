@@ -2,13 +2,13 @@ import Link from "next/link";
 import Planet from "@/components/Planet";
 import StudentTopbar from "@/components/StudentTopbar";
 import { requireStudent } from "@/lib/auth";
-import { worldSummaries } from "@/lib/progress";
+import { wrongCountsByWorld, worldSummaries } from "@/lib/progress";
 
 export const metadata = { title: "Chọn thế giới · Vũ trụ Tri thức" };
 
 export default async function HomePage() {
   const user = await requireStudent();
-  const worlds = await worldSummaries(user.id);
+  const [worlds, wrong] = await Promise.all([worldSummaries(user.id), wrongCountsByWorld(user.id)]);
   const stars = worlds.reduce((s, w) => s + w.stars, 0);
 
   return (
@@ -28,7 +28,7 @@ export default async function HomePage() {
               <div className="world-progress">
                 <div className="bar"><i style={{ width: `${(w.passed / Math.max(1, w.levelCount)) * 100}%` }} /></div>
                 <div className="world-meta">
-                  <span>Đã qua {w.passed}/{w.levelCount} level</span>
+                  <span>{w.passed}/{w.levelCount} level</span>
                   <span>⭐ {w.stars}/{w.levelCount * 3}</span>
                 </div>
               </div>
@@ -36,6 +36,19 @@ export default async function HomePage() {
             </Link>
           ))}
         </div>
+        {worlds.some((w) => wrong[w.slug]) && (
+          <div className="page-head" style={{ marginTop: 32 }}>
+            <h2 className="title-kid">🛠️ Ôn lại câu em từng sai</h2>
+            <p className="muted-light">Làm đúng là câu đó biến mất khỏi danh sách. Ôn tập không tính sao nên em cứ thoải mái nhé!</p>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {worlds.filter((w) => wrong[w.slug]).map((w) => (
+                <Link key={w.id} href={`/review/${w.slug}`} className="btn btn-light btn-lg">
+                  {w.name} · {wrong[w.slug]} câu ▶
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );

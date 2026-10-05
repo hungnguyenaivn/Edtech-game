@@ -17,6 +17,9 @@ export const roleEnum = pgEnum("role", ["STUDENT", "TEACHER"]);
 // MCQ = Trắc nghiệm A/B/C/D · TRUE_FALSE = Đúng / Sai
 export const questionTypeEnum = pgEnum("question_type", ["MCQ", "TRUE_FALSE"]);
 
+// LEVEL = lượt chơi level (tính sao) · REVIEW = ôn lại câu đã sai (không tính sao)
+export const attemptModeEnum = pgEnum("attempt_mode", ["LEVEL", "REVIEW"]);
+
 const id = () => text("id").primaryKey().$defaultFn(createId);
 
 export const classRooms = pgTable("class_rooms", {
@@ -87,6 +90,7 @@ export const attempts = pgTable(
     levelId: text("level_id")
       .notNull()
       .references(() => levels.id, { onDelete: "cascade" }),
+    mode: attemptModeEnum("mode").notNull().default("LEVEL"),
     questionIds: jsonb("question_ids").$type<string[]>().notNull(),
     correctCount: integer("correct_count").notNull().default(0),
     stars: integer("stars").notNull().default(0),

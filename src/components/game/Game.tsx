@@ -16,7 +16,17 @@ type Answer = { chosenIndex: number; correct: boolean; correctIndex: number; exp
 
 const KEYS = ["A", "B", "C", "D"];
 
-export default function Game({ levelId, avatarColor, worldSlug }: { levelId: string; avatarColor: string; worldSlug: string }) {
+export default function Game({
+  levelId,
+  avatarColor,
+  worldSlug,
+  review = false,
+}: {
+  levelId?: string;
+  avatarColor: string;
+  worldSlug: string;
+  review?: boolean;
+}) {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -40,14 +50,14 @@ export default function Game({ levelId, avatarColor, worldSlug }: { levelId: str
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    fetch("/api/attempts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ levelId }) })
+    fetch("/api/attempts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(review ? { mode: "REVIEW", worldSlug } : { levelId }) })
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? "Không bắt đầu được lượt chơi");
         setData(j);
       })
       .catch((e) => setError(e.message));
-  }, [levelId]);
+  }, [levelId, review, worldSlug]);
 
   const answersRef = useRef(answers);
   answersRef.current = answers;
@@ -157,7 +167,7 @@ export default function Game({ levelId, avatarColor, worldSlug }: { levelId: str
           <h1 className="title-kid">Chưa vào được level</h1>
           <p className="muted">{error}</p>
           <div className="result-actions">
-            <Link href={`/world/${worldSlug}`} className="btn btn-primary btn-lg">Về danh sách level</Link>
+            <Link href={review ? "/home" : `/world/${worldSlug}`} className="btn btn-primary btn-lg">{review ? "Về các thế giới" : "Về danh sách level"}</Link>
           </div>
         </div>
       </main>
@@ -179,10 +189,10 @@ export default function Game({ levelId, avatarColor, worldSlug }: { levelId: str
       {data && (
         <div className="hud">
           <div style={{ display: "flex", gap: 10 }}>
-            <Link href={`/world/${data.world.slug}`} className="hud-pill" style={{ textDecoration: "none" }}>← Thoát</Link>
+            <Link href={review ? "/home" : `/world/${data.world.slug}`} className="hud-pill" style={{ textDecoration: "none" }}>← Thoát</Link>
             <span className="hud-pill">
               <span style={{ width: 12, height: 12, borderRadius: 4, background: data.world.color, display: "inline-block" }} />
-              {data.world.name} · <b>Level {data.level.number}</b> · {data.level.title}
+              {data.world.name} · {review ? <b>Ôn tập</b> : <><b>Level {data.level.number}</b> · {data.level.title}</>}
             </span>
           </div>
           <span className="hud-pill">

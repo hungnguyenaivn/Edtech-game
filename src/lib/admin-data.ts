@@ -39,7 +39,7 @@ export async function recentAttempts(userIds: string[], limit = 12) {
     .from(schema.attempts)
     .innerJoin(schema.levels, eq(schema.levels.id, schema.attempts.levelId))
     .innerJoin(schema.worlds, eq(schema.worlds.id, schema.levels.worldId))
-    .where(and(inArray(schema.attempts.userId, userIds), isNotNull(schema.attempts.finishedAt)))
+    .where(and(inArray(schema.attempts.userId, userIds), isNotNull(schema.attempts.finishedAt), eq(schema.attempts.mode, "LEVEL")))
     .orderBy(desc(schema.attempts.finishedAt))
     .limit(limit);
 }

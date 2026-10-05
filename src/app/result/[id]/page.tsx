@@ -15,7 +15,8 @@ export default async function ResultPage({ params }: { params: Promise<{ id: str
     where: and(eq(schema.attempts.id, id), eq(schema.attempts.userId, user.id)),
   });
   if (!attempt) notFound();
-  if (!attempt.finishedAt) redirect(`/play/${attempt.levelId}`);
+  const review = attempt.mode === "REVIEW";
+  if (!attempt.finishedAt) redirect(review ? "/home" : `/play/${attempt.levelId}`);
 
   const level = (await db.query.levels.findFirst({ where: eq(schema.levels.id, attempt.levelId), with: { world: true } }))!;
   const total = attempt.questionIds.length;
@@ -23,7 +24,7 @@ export default async function ResultPage({ params }: { params: Promise<{ id: str
 
   // Level sau vừa được mở lần đầu nhờ lượt này?
   let unlocked: { id: string; number: number; title: string } | null = null;
-  if (passed) {
+  if (passed && !review) {
     const earlierPass = await db.query.attempts.findFirst({
       where: and(
         eq(schema.attempts.userId, user.id),
@@ -46,25 +47,33 @@ export default async function ResultPage({ params }: { params: Promise<{ id: str
 
   const answers = await db.select().from(schema.attemptAnswers).where(eq(schema.attemptAnswers.attemptId, id));
   const qs = await db
-    .select({ id: schema.questions.id, prompt: schema.questions.prompt })
+    .select({
+      id: schema.questions.id,
+      prompt: schema.questions.prompt,
+      options: schema.questions.options,
+      correctIndex: schema.questions.correctIndex,
+      explanation: schema.questions.explanation,
+    })
     .from(schema.questions)
     .where(inArray(schema.questions.id, attempt.questionIds))
     .orderBy(asc(schema.questions.createdAt));
   const qById = new Map(qs.map((q) => [q.id, q]));
   const aById = new Map(answers.map((a) => [a.questionId, a]));
 
-  const title = attempt.stars === 3 ? "Xuất sắc!" : attempt.stars === 2 ? "Giỏi lắm!" : attempt.stars === 1 ? "Qua level rồi!" : "Suýt nữa rồi!";
+  const title = review
+    ? attempt.correctCount === total ? "Ôn xong hết rồi!" : "Cố lên, ôn thêm nhé!"
+    : attempt.stars === 3 ? "Xuất sắc!" : attempt.stars === 2 ? "Giỏi lắm!" : attempt.stars === 1 ? "Qua level rồi!" : "Suýt nữa rồi!";
 
   return (
     <main className="space-bg center-screen">
       <div className="result-card">
         <p className="muted" style={{ margin: 0, fontWeight: 700 }}>
-          {level.world.name} · Level {level.number} · {level.title}
+          {level.world.name} · {review ? "Ôn tập" : `Level ${level.number} · ${level.title}`}
         </p>
         <h1 className="title-kid" style={{ marginTop: 6 }}>{title}</h1>
-        <div className="result-stars"><Stars n={attempt.stars} size={64} /></div>
+        {!review && <div className="result-stars"><Stars n={attempt.stars} size={64} /></div>}
         <div className="result-score">Em trả lời đúng {attempt.correctCount}/{total} câu</div>
-        {!passed && (
+        {!passed && !review && (
           <p className="muted" style={{ marginBottom: 0 }}>
             Cần đúng ít nhất {passMark(total)} câu để qua level. Chơi lại nhé, câu hỏi sẽ được đổi!
           </p>
@@ -74,12 +83,19 @@ export default async function ResultPage({ params }: { params: Promise<{ id: str
         <div className="result-list">
           {attempt.questionIds.map((qid, i) => {
             const a = aById.get(qid);
+            const q = qById.get(qid);
             return (
               <div key={qid} className="result-item">
                 <span>{a ? (a.isCorrect ? "✅" : "❌") : "⬜"}</span>
                 <span>
-                  <b>Câu {i + 1}.</b> {qById.get(qid)?.prompt}
+                  <b>Câu {i + 1}.</b> {q?.prompt}
                   {!a && <em className="muted"> (chưa trả lời)</em>}
+                  {a && !a.isCorrect && q && (
+                    <span style={{ display: "block", marginTop: 4 }}>
+                      Đáp án đúng: <b>{q.options[q.correctIndex]}</b>
+                      <span className="muted"> — {q.explanation}</span>
+                    </span>
+                  )}
                 </span>
               </div>
             );
@@ -87,10 +103,16 @@ export default async function ResultPage({ params }: { params: Promise<{ id: str
         </div>
 
         <div className="result-actions">
-          <Link href={`/world/${level.world.slug}`} className="btn btn-light btn-lg">Danh sách level</Link>
-          <Link href={`/play/${level.id}`} className="btn btn-light btn-lg">Chơi lại ↻</Link>
-          {passed && next && (
-            <Link href={`/play/${next.id}`} className="btn btn-primary btn-lg">Level {next.number} ▶</Link>
+          {review ? (
+            <Link href="/home" className="btn btn-primary btn-lg">Về các thế giới</Link>
+          ) : (
+            <>
+              <Link href={`/world/${level.world.slug}`} className="btn btn-light btn-lg">Danh sách level</Link>
+              <Link href={`/play/${level.id}`} className="btn btn-light btn-lg">Chơi lại ↻</Link>
+              {passed && next && (
+                <Link href={`/play/${next.id}`} className="btn btn-primary btn-lg">Level {next.number} ▶</Link>
+              )}
+            </>
           )}
         </div>
       </div>

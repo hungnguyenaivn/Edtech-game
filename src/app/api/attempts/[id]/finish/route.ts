@@ -20,12 +20,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const answers = await tx.select().from(schema.attemptAnswers).where(eq(schema.attemptAnswers.attemptId, id));
     const total = attempt.questionIds.length;
     const correct = answers.filter((a) => a.isCorrect).length;
-    const stars = starsFor(correct, total);
+    const isReview = attempt.mode === "REVIEW";
+    const stars = isReview ? 0 : starsFor(correct, total);
 
     await tx
       .update(schema.attempts)
       .set({ correctCount: correct, stars, finishedAt: new Date() })
       .where(eq(schema.attempts.id, id));
+
+    if (isReview) return { correct, total, stars };
 
     const prev = await tx.query.levelProgress.findFirst({
       where: and(eq(schema.levelProgress.userId, user.id), eq(schema.levelProgress.levelId, attempt.levelId)),
