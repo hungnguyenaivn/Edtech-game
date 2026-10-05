@@ -2,16 +2,17 @@ import Link from "next/link";
 import { count } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireTeacher } from "@/lib/auth";
-import { classStudents, fmtTime, progressFor, recentAttempts, worldsWithLevels } from "@/lib/admin-data";
+import { classStudents, fmtTime, hardestQuestions, progressFor, recentAttempts, worldsWithLevels } from "@/lib/admin-data";
 
 export default async function AdminHome() {
   const teacher = await requireTeacher();
   const students = await classStudents(teacher.classId);
   const ids = students.map((s) => s.id);
-  const [worlds, prog, recent, [{ n: qCount }]] = await Promise.all([
+  const [worlds, prog, recent, hardest, [{ n: qCount }]] = await Promise.all([
     worldsWithLevels(),
     progressFor(ids),
     recentAttempts(ids),
+    hardestQuestions(ids),
     db.select({ n: count() }).from(schema.questions),
   ]);
   const key = (u: string, l: string) => `${u}:${l}`;
@@ -85,6 +86,26 @@ export default async function AdminHome() {
         <p className="small" style={{ margin: "12px 0 0" }}>
           <span className="pill pill-green">★★</span> đã qua (số sao) · <span className="pill pill-amber">5/10</span> đã chơi nhưng chưa qua (điểm tốt nhất) · – chưa chơi
         </p>
+      </div>
+
+      <div className="panel">
+        <h2>Câu hỏi cả lớp hay sai nhất</h2>
+        {hardest.length === 0 ? (
+          <p className="small">Chưa đủ dữ liệu (mỗi câu cần ít nhất 3 lượt trả lời).</p>
+        ) : (
+          <table className="tbl">
+            <thead><tr><th>Câu hỏi</th><th>Thế giới · Level</th><th>Tỉ lệ sai</th></tr></thead>
+            <tbody>
+              {hardest.map((q) => (
+                <tr key={q.id}>
+                  <td><Link href={`/admin/questions/${q.id}`} style={{ fontWeight: 600, color: "#4b3ccc" }}>{q.prompt}</Link></td>
+                  <td>{q.worldName} · L{q.levelNumber}</td>
+                  <td><span className="pill pill-red">{Math.round((q.wrong / q.answers) * 100)}%</span> <span className="small">{q.wrong}/{q.answers} lượt</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="panel">

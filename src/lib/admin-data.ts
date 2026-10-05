@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 export async function classStudents(classId: string | null) {
@@ -41,6 +41,32 @@ export async function recentAttempts(userIds: string[], limit = 12) {
     .innerJoin(schema.worlds, eq(schema.worlds.id, schema.levels.worldId))
     .where(and(inArray(schema.attempts.userId, userIds), isNotNull(schema.attempts.finishedAt), eq(schema.attempts.mode, "LEVEL")))
     .orderBy(desc(schema.attempts.finishedAt))
+    .limit(limit);
+}
+
+/** Câu hỏi cả lớp hay sai nhất (cần ít nhất minAnswers lượt trả lời để tỉ lệ có ý nghĩa). */
+export async function hardestQuestions(userIds: string[], limit = 8, minAnswers = 3) {
+  if (userIds.length === 0) return [];
+  const answers = sql<number>`count(*)::int`;
+  const wrong = sql<number>`count(*) filter (where ${schema.attemptAnswers.isCorrect} = false)::int`;
+  return db
+    .select({
+      id: schema.questions.id,
+      prompt: schema.questions.prompt,
+      levelNumber: schema.levels.number,
+      worldName: schema.worlds.name,
+      answers,
+      wrong,
+    })
+    .from(schema.attemptAnswers)
+    .innerJoin(schema.attempts, eq(schema.attempts.id, schema.attemptAnswers.attemptId))
+    .innerJoin(schema.questions, eq(schema.questions.id, schema.attemptAnswers.questionId))
+    .innerJoin(schema.levels, eq(schema.levels.id, schema.questions.levelId))
+    .innerJoin(schema.worlds, eq(schema.worlds.id, schema.levels.worldId))
+    .where(inArray(schema.attempts.userId, userIds))
+    .groupBy(schema.questions.id, schema.questions.prompt, schema.levels.number, schema.worlds.name)
+    .having(sql`count(*) >= ${minAnswers} and count(*) filter (where ${schema.attemptAnswers.isCorrect} = false) > 0`)
+    .orderBy(sql`count(*) filter (where ${schema.attemptAnswers.isCorrect} = false)::float / count(*) desc`, desc(answers))
     .limit(limit);
 }
 

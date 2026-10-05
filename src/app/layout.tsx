@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import pkg from "../../package.json";
 
 export const metadata: Metadata = {
   title: "Vũ trụ Tri thức",
@@ -18,7 +19,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <span className="version-tag">v{pkg.version}</span>
+      </body>
     </html>
   );
 }
