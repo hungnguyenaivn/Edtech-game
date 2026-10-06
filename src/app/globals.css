@@ -297,3 +297,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
   padding: 3px 9px; border-radius: 99px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
   color: #fff; background: #0d1033aa; border: 1px solid #ffffff2e; backdrop-filter: blur(4px);
 }
+
+/* ---------- Chọn trang phục ---------- */
+.skins-wrap { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
+.skin-hero { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 20px; border-radius: 20px; background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--sk) 40%, #1b2050), #1b2050); border: 2px solid color-mix(in srgb, var(--sk) 70%, #fff 10%); position: sticky; top: 16px; }
+.skin-hero h2 { margin: 8px 0 0; color: #fff; }
+.skin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
+.skin-card { position: relative; display: grid; justify-items: center; gap: 6px; padding: 12px 8px; border-radius: 16px; border: 2px solid #ffffff22; background: #ffffff10; color: #fff; font: inherit; font-weight: 700; cursor: pointer; transition: transform .12s, border-color .12s, background .12s; }
+.skin-card:hover { transform: translateY(-2px); background: #ffffff1c; }
+.skin-card.on { border-color: var(--sk); background: color-mix(in srgb, var(--sk) 25%, transparent); }
+.skin-card:focus-visible { outline: 3px solid var(--star, #ffd23f); outline-offset: 2px; }
+.skin-tick { position: absolute; top: 6px; right: 8px; font-style: normal; font-size: 13px; background: var(--sk); color: #1d1b2e; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
+@media (max-width: 720px) { .skins-wrap { grid-template-columns: 1fr; } .skin-hero { position: static; } }

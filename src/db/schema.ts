@@ -35,6 +35,7 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull(),
   role: roleEnum("role").notNull().default("STUDENT"),
   avatar: integer("avatar").notNull().default(0), // màu áo nhân vật
+  skin: text("skin").notNull().default("spartan"), // trang phục chiến binh (xem src/lib/skins.ts)
   classId: text("class_id").references(() => classRooms.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

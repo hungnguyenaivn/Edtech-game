@@ -180,6 +180,7 @@ export class OverworldEngine {
     private stations: StationInfo[],
     private won: boolean,
     avatarColor: string,
+    skin: string,
     startStop: number,
     private cb: OverworldCallbacks,
   ) {
@@ -187,7 +188,7 @@ export class OverworldEngine {
     this.frames = [renderMap(map, 0), renderMap(map, 1)];
     const s = map.stops[startStop];
     this.player = { x: s.bx * T + T, y: (s.by + 3) * T + T - 3, dir: "up", moving: false, anim: 0 };
-    this.sprites = buildCharacter({ shirt: avatarColor, hair: "#2b1d16" });
+    this.sprites = buildCharacter({ shirt: avatarColor, hair: "#2b1d16", skin });
     this.bind();
     this.resize();
   }

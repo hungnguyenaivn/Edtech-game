@@ -14,7 +14,7 @@ const DPAD: { cls: string; key: string; label: string }[] = [
 ];
 
 /** Bản đồ thế giới: nhân vật của em tự đi bộ tới từng ngôi nhà level. */
-export default function WorldMap({ slug, avatarColor, levels, questionsPerLevel }: { slug: string; avatarColor: string; levels: MapLevel[]; questionsPerLevel: number }) {
+export default function WorldMap({ slug, avatarColor, skin, levels, questionsPerLevel }: { slug: string; avatarColor: string; skin: string; levels: MapLevel[]; questionsPerLevel: number }) {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<OverworldEngine | null>(null);
@@ -32,7 +32,7 @@ export default function WorldMap({ slug, avatarColor, levels, questionsPerLevel 
     const lv = levelsRef.current;
     const map = buildOverworld(slug, lv.length);
     const cur = lv.findIndex((l) => l.current);
-    const engine = new OverworldEngine(canvasRef.current, map, lv, lv.length > 0 && lv.every((l) => l.passed), avatarColor, cur >= 0 ? cur : lv.length, {
+    const engine = new OverworldEngine(canvasRef.current, map, lv, lv.length > 0 && lv.every((l) => l.passed), avatarColor, skin, cur >= 0 ? cur : lv.length, {
       onNear: setNear,
       onEnter: (i) => {
         const l = levelsRef.current[i];
@@ -52,7 +52,7 @@ export default function WorldMap({ slug, avatarColor, levels, questionsPerLevel 
       engine.destroy();
       engineRef.current = null;
     };
-  }, [slug, avatarColor, router]);
+  }, [slug, avatarColor, skin, router]);
 
   const allPassedRef = useRef(allPassed);
   allPassedRef.current = allPassed;

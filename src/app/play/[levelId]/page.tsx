@@ -20,6 +20,7 @@ export default async function PlayPage({ params }: { params: Promise<{ levelId: 
       levelId={levelId}
       worldSlug={level.world.slug}
       avatarColor={AVATAR_COLORS[user.avatar % AVATAR_COLORS.length]}
+      skin={user.skin}
     />
   );
 }

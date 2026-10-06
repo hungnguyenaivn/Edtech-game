@@ -19,11 +19,13 @@ const KEYS = ["A", "B", "C", "D"];
 export default function Game({
   levelId,
   avatarColor,
+  skin,
   worldSlug,
   review = false,
 }: {
   levelId?: string;
   avatarColor: string;
+  skin: string;
   worldSlug: string;
   review?: boolean;
 }) {
@@ -76,7 +78,7 @@ export default function Game({
     if (!data || !canvasRef.current) return;
     const map = generateMap(data.world.slug);
     const spots = placeNpcs(map, data.questions.length, data.attemptId);
-    const engine = new GameEngine(canvasRef.current, map, spots, avatarColor, {
+    const engine = new GameEngine(canvasRef.current, map, spots, avatarColor, skin, {
       onNear: setNear,
       onInteract: openQuestion,
     });
@@ -87,7 +89,7 @@ export default function Game({
       engine.destroy();
       engineRef.current = null;
     };
-  }, [data, avatarColor, openQuestion]);
+  }, [data, avatarColor, skin, openQuestion]);
 
   useEffect(() => {
     if (!toast) return;

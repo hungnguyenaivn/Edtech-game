@@ -39,6 +39,7 @@ export default async function WorldPage({ params }: { params: Promise<{ slug: st
             <WorldMap
               slug={world.slug}
               avatarColor={AVATAR_COLORS[user.avatar % AVATAR_COLORS.length]}
+              skin={user.skin}
               questionsPerLevel={QUESTIONS_PER_LEVEL}
               levels={levels.map((l) => ({ id: l.id, number: l.number, title: l.title, unlocked: l.unlocked, passed: l.passed, stars: l.bestStars, current: current?.id === l.id, plays: l.plays, bestCorrect: l.bestCorrect }))}
             />

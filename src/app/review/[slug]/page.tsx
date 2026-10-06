@@ -14,5 +14,5 @@ export default async function ReviewPage({ params }: { params: Promise<{ slug: s
   const world = await db.query.worlds.findFirst({ where: eq(schema.worlds.slug, slug) });
   if (!world) notFound();
   if ((await wrongQuestions(user.id, slug)).length === 0) redirect("/home");
-  return <Game key={slug} review worldSlug={slug} avatarColor={AVATAR_COLORS[user.avatar % AVATAR_COLORS.length]} />;
+  return <Game key={slug} review worldSlug={slug} avatarColor={AVATAR_COLORS[user.avatar % AVATAR_COLORS.length]} skin={user.skin} />;
 }

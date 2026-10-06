@@ -24,6 +24,7 @@ export default function StudentTopbar({
       </div>
       <div className="topbar-right">
         <Link href="/leaderboard" className="chip">🏆 Xếp hạng lớp</Link>
+        <Link href="/skins" className="chip">🛡️ Trang phục</Link>
         <span className="chip">⭐ {totalStars}</span>
         <span className="chip">
           <span className="avatar-dot" style={{ background: AVATAR_COLORS[avatar % AVATAR_COLORS.length] }}>
