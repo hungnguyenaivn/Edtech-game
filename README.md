@@ -78,7 +78,7 @@ DATABASE_URL=postgresql://game:game@localhost:5432/game npm run test:e2e   # ả
 
 ```
 db/
-  questions/*.ts        ngân hàng câu hỏi mẫu (3 thế giới × 5 level × 15 câu)
+  questions/*.ts        ngân hàng câu hỏi mẫu (4 thế giới × 5 level × 15 câu)
   seed.ts               nạp dữ liệu mẫu
 src/
   db/schema.ts          bảng: class_rooms, users, worlds, levels, questions, attempts, attempt_answers, level_progress

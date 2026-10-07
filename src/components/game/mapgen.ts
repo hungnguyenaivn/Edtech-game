@@ -103,6 +103,28 @@ export const THEMES: Record<string, Theme> = {
     metal: false,
     npc: "sailor",
   },
+  "cyber-world": {
+    slug: "cyber-world",
+    bg: "#0a1024",
+    groundA: "#1f3f56",
+    groundB: "#1a364c",
+    path: "#10263a",
+    pathGlow: "#22d3ee",
+    water: "#0e7490",
+    sand: "#2d5a6e",
+    wall: "#35526b",
+    border: "tree",
+    obstacles: [
+      { kind: "tree", w: 3 },
+      { kind: "server", w: 3 },
+      { kind: "crate", w: 1 },
+      { kind: "bush", w: 2 },
+    ],
+    decor: ["cable", "flowers"],
+    leaf: "#34d399",
+    metal: false,
+    npc: "robot",
+  },
 };
 
 export function isSolid(c: Cell): boolean {

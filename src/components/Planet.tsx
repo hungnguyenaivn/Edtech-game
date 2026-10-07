@@ -59,7 +59,9 @@ function PlanetBase({ slug, id }: { slug: string; id: string }) {
       ? ["#8f84ff", "#4a3fc4", "#1c1760"]
       : slug === "toan-ly-hoa"
         ? ["#ffc27a", "#e8782a", "#7a3414"]
-        : ["#5fe0c4", "#1b8f9c", "#0b3a5e"];
+        : slug === "cyber-world"
+          ? ["#7df3ff", "#1fa3c9", "#0a3a63"]
+          : ["#5fe0c4", "#1b8f9c", "#0b3a5e"];
   return (
     <radialGradient id={`${id}-base`} cx="32%" cy="28%" r="80%">
       <stop offset="0%" stopColor={stops[0]} />
@@ -109,6 +111,29 @@ function Surface({ slug }: { slug: string }) {
       </g>
     );
   }
+  if (slug === "cyber-world") {
+    // hành tinh "mã nguồn": lưới phát sáng, dòng sông số và các nút mạng
+    return (
+      <g>
+        <g fill="none" stroke="#b6fbff" strokeWidth="1.2" opacity="0.35">
+          <ellipse cx="100" cy="100" rx="68" ry="26" />
+          <ellipse cx="100" cy="100" rx="68" ry="50" />
+          <ellipse cx="100" cy="100" rx="30" ry="68" />
+          <ellipse cx="100" cy="100" rx="52" ry="68" />
+        </g>
+        <path d="M34 112c16-10 30 8 48 0s28-14 44-4 28 6 42-2" fill="none" stroke="#e6ffff" strokeWidth="5" strokeLinecap="round" opacity="0.5" />
+        <path d="M58 70l12 0 8 12 16 0 8-10 22 0" fill="none" stroke="#e6ffff" strokeWidth="2" strokeLinejoin="round" opacity="0.7" />
+        <g fill="#fff">
+          <circle cx="70" cy="70" r="2.6" opacity="0.95" />
+          <circle cx="94" cy="82" r="2.4" opacity="0.9" />
+          <circle cx="126" cy="72" r="2.6" opacity="0.9" />
+          <circle cx="148" cy="72" r="2" opacity="0.7" />
+          <circle cx="82" cy="140" r="2" opacity="0.65" />
+          <circle cx="120" cy="136" r="1.8" opacity="0.6" />
+        </g>
+      </g>
+    );
+  }
   // tieng-anh: đại dương, lục địa, mây
   return (
     <g>
@@ -146,7 +171,7 @@ function RingFront({ id }: { id: string }) {
 }
 
 function Moon({ slug }: { slug: string }) {
-  const [cx, cy, r] = slug === "ai-cong-nghe" ? [160, 48, 11] : [38, 156, 9];
+  const [cx, cy, r] = slug === "ai-cong-nghe" ? [160, 48, 11] : slug === "cyber-world" ? [164, 150, 9] : [38, 156, 9];
   return (
     <g>
       <defs>

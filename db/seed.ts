@@ -1,5 +1,5 @@
 /**
- * Nạp dữ liệu mẫu: 1 lớp, 1 giáo viên, 5 học sinh, 3 thế giới × 5 level × 15 câu.
+ * Nạp dữ liệu mẫu: 1 lớp, 1 giáo viên, 5 học sinh, 4 thế giới × 5 level × 15 câu.
  * Chạy: npm run db:seed  (XOÁ SẠCH dữ liệu cũ rồi nạp lại)
  * Khi deploy dùng db/seed-if-empty.ts — chỉ nạp khi database còn trống.
  */
@@ -9,13 +9,41 @@ import { db, schema } from "../src/db";
 import ai from "./questions/ai-cong-nghe";
 import math from "./questions/toan-ly-hoa";
 import english from "./questions/tieng-anh";
+import cyber from "./questions/cyber-world";
 import type { WorldBank } from "./questions/types";
 
-const WORLDS: { bank: WorldBank; name: string; subtitle: string; color: string }[] = [
+export const WORLDS: { bank: WorldBank; name: string; subtitle: string; color: string }[] = [
   { bank: ai, name: "AI Công nghệ", subtitle: "Hành tinh Trí tuệ", color: "#7c6cff" },
   { bank: math, name: "Toán Lý Hóa", subtitle: "Hành tinh Khám phá", color: "#ff9a3d" },
   { bank: english, name: "Tiếng Anh", subtitle: "Hành tinh Ngôn ngữ", color: "#2fc4a0" },
+  { bank: cyber, name: "Cyber World", subtitle: "Hành tinh Mã nguồn", color: "#22d3ee" },
 ];
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Thêm một thế giới cùng các level và câu hỏi. Trả về số câu hỏi đã thêm. */
+export async function insertWorld(conn: typeof db | Tx, w: (typeof WORLDS)[number], order: number): Promise<number> {
+  const [world] = await conn
+    .insert(schema.worlds)
+    .values({ slug: w.bank.slug, name: w.name, subtitle: w.subtitle, color: w.color, order })
+    .returning();
+  let total = 0;
+  for (const [i, lv] of w.bank.levels.entries()) {
+    const [level] = await conn
+      .insert(schema.levels)
+      .values({ worldId: world.id, number: i + 1, title: lv.title })
+      .returning();
+    await conn.insert(schema.questions).values(
+      lv.questions.map((q) =>
+        q[0] === "m"
+          ? { levelId: level.id, type: "MCQ" as const, prompt: q[1], options: q[2], correctIndex: q[3], explanation: q[4] }
+          : { levelId: level.id, type: "TRUE_FALSE" as const, prompt: q[1], options: ["Đúng", "Sai"], correctIndex: q[2] ? 0 : 1, explanation: q[3] },
+      ),
+    );
+    total += lv.questions.length;
+  }
+  return total;
+}
 
 const STUDENTS = [
   ["hs01", "Nguyễn An"],
@@ -56,26 +84,7 @@ export async function seedAll() {
   );
 
   let total = 0;
-  for (const [order, w] of WORLDS.entries()) {
-    const [world] = await db
-      .insert(schema.worlds)
-      .values({ slug: w.bank.slug, name: w.name, subtitle: w.subtitle, color: w.color, order })
-      .returning();
-    for (const [i, lv] of w.bank.levels.entries()) {
-      const [level] = await db
-        .insert(schema.levels)
-        .values({ worldId: world.id, number: i + 1, title: lv.title })
-        .returning();
-      await db.insert(schema.questions).values(
-        lv.questions.map((q) =>
-          q[0] === "m"
-            ? { levelId: level.id, type: "MCQ" as const, prompt: q[1], options: q[2], correctIndex: q[3], explanation: q[4] }
-            : { levelId: level.id, type: "TRUE_FALSE" as const, prompt: q[1], options: ["Đúng", "Sai"], correctIndex: q[2] ? 0 : 1, explanation: q[3] },
-        ),
-      );
-      total += lv.questions.length;
-    }
-  }
+  for (const [order, w] of WORLDS.entries()) total += await insertWorld(db, w, order);
 
   console.log(`Xong: 1 lớp, 1 giáo viên (giaovien / ${process.env.TEACHER_PASSWORD ? "mật khẩu từ TEACHER_PASSWORD" : "gv123456"}), ${STUDENTS.length} học sinh (hs01…hs05 / 123456), ${total} câu hỏi.`);
 }
