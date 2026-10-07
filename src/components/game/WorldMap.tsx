@@ -13,7 +13,7 @@ const DPAD: { cls: string; key: string; label: string }[] = [
   { cls: "down", key: "arrowdown", label: "▼" },
 ];
 
-/** Bản đồ thế giới: nhân vật của em tự đi bộ tới từng ngôi nhà level. */
+/** Bản đồ thế giới 2.5D (isometric, có đồi dốc): nhân vật của em tự đi bộ lên xuống tới từng ngôi nhà level. */
 export default function WorldMap({ slug, avatarColor, skin, levels, questionsPerLevel }: { slug: string; avatarColor: string; skin: string; levels: MapLevel[]; questionsPerLevel: number }) {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,7 +70,7 @@ export default function WorldMap({ slug, avatarColor, skin, levels, questionsPer
     <div className="worldmap">
       <canvas ref={canvasRef} />
       <div className="wm-top">
-        <span className="wm-hint">Dùng ← ↑ ↓ → hoặc chạm để đi · Nhấn E để vào nhà</span>
+        <span className="wm-hint">Dùng ← ↑ ↓ → hoặc chạm để đi, leo dốc lên đồi · Nhấn E để vào nhà</span>
         {currentIdx >= 0 && (
           <button className="btn btn-primary" onClick={() => engineRef.current?.walkTo(currentIdx)}>📍 Tới level của em</button>
         )}
