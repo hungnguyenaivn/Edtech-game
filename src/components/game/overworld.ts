@@ -1,4 +1,6 @@
 import { type Cell, type GameMap, THEMES, isSolid } from "./mapgen";
+import { MAX_STEP, MOVE_SPEED, type MoveMode, canStep, inStop, isBlocked, tileMode } from "./movement";
+import { carveRiver } from "./river";
 import * as S from "./sprites";
 import { type CharSprites, type Dir, buildCharacter, hashString, makeCanvas, rng } from "./sprites";
 
@@ -28,9 +30,6 @@ export type StationInfo = {
   current: boolean;
 };
 
-export function inStop(stops: Stop[], x: number, y: number) {
-  return stops.some((s) => x >= s.bx && x <= s.bx + 1 && y >= s.by && y <= s.by + 1);
-}
 
 /** Độ cao của sân nhà: lên xuống nhấp nhô nhưng nhìn chung cao dần, kho báu nằm trên đỉnh. */
 function stopHeights(levelCount: number): number[] {
@@ -187,7 +186,7 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
 
   // Ao nước nằm dưới thung lũng (độ cao 0) — thế giới "phòng lab" không có
   const pond = grid(false);
-  if (!theme.metal) {
+  if (!theme.metal && !theme.swimmable) {
     for (let i = 0; i < 24; i++) {
       const cx = 4 + Math.floor(r() * (W - 8));
       const cy = 4 + Math.floor(r() * (H - 8));
@@ -226,6 +225,8 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
         if (hi - 2 <= lo + 2) height[y][x] = Math.max(hi - 2, Math.min(lo + 2, height[y][x]));
       }
 
+  if (theme.swimmable) carveRiver({ seed: hashString(slug + ":river"), cells, height, locked, w: W, h: H });
+
   // Viền bản đồ
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++)
@@ -254,6 +255,7 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
     }
 
   const spawn = { x: stops[0].bx, y: stops[0].by + 3 };
+  const moveMap = { w: W, h: H, cells, height, stops, theme };
   const reachable = grid(false);
   const bq: [number, number][] = [[spawn.x, spawn.y]];
   reachable[spawn.y][spawn.x] = true;
@@ -262,8 +264,7 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx;
       const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H || reachable[ny][nx] || isSolid(cells[ny][nx]) || inStop(stops, nx, ny)) continue;
-      if (Math.abs(height[ny][nx] - height[y][x]) > 1) continue;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H || reachable[ny][nx] || !canStep(moveMap, x, y, nx, ny)) continue;
       reachable[ny][nx] = true;
       bq.push([nx, ny]);
     }
@@ -273,7 +274,7 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
 }
 
 // ---------------------------------------------------------------- engine
-const SPEED = 3.4; // ô / giây
+const WATER_Z = -0.3; // mặt nước thấp hơn nền một chút khi bơi
 const RADIUS = 0.22; // nửa bề rộng chân nhân vật (ô)
 const ENTER_DIST = 1.4; // ô
 const DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -296,7 +297,7 @@ export class OverworldEngine {
   private sideL: string[][];
   private sideR: string[][];
   private lip: (string | null)[][];
-  private player: { x: number; y: number; z: number; dir: Dir; moving: boolean; anim: number };
+  private player: { x: number; y: number; z: number; dir: Dir; moving: boolean; anim: number; mode: MoveMode };
   private sprites: CharSprites;
   private spriteCache = new Map<string, HTMLCanvasElement>();
   private keys = new Set<string>();
@@ -307,6 +308,7 @@ export class OverworldEngine {
   private last = 0;
   private time = 0;
   private stuck = 0;
+  private settling = false;
   private near: number | null = null;
   private zoom = 2;
   private cam = { x: 0, y: 0 };
@@ -337,7 +339,7 @@ export class OverworldEngine {
     const s = map.stops[startStop];
     const px = s.bx + 1;
     const py = s.by + 3.2;
-    this.player = { x: px, y: py, z: this.groundAt(px, py), dir: "up", moving: false, anim: 0 };
+    this.player = { x: px, y: py, z: this.groundAt(px, py), dir: "up", moving: false, anim: 0, mode: "walk" };
     this.sprites = buildCharacter({ shirt: avatarColor, hair: "#2b1d16", skin });
     this.bind();
     this.resize();
@@ -526,7 +528,7 @@ export class OverworldEngine {
 
   private solidTile(tx: number, ty: number) {
     if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return true;
-    return isSolid(this.map.cells[ty][tx]) || inStop(this.map.stops, tx, ty);
+    return isBlocked(this.map, tx, ty);
   }
 
   private tileH(tx: number, ty: number) {
@@ -599,7 +601,8 @@ export class OverworldEngine {
 
   private routeTo(goals: { x: number; y: number }[], target: { stop: number; enter: boolean } | null) {
     const start = { x: Math.floor(this.player.x), y: Math.floor(this.player.y) };
-    const route = this.bfs(start, goals.filter((g) => !this.solidTile(g.x, g.y)));
+    const open = goals.filter((g) => !this.solidTile(g.x, g.y));
+    const route = this.bfs(start, open, false) ?? this.bfs(start, open, true);
     if (!route) return;
     this.path = [start, ...route];
     this.target = target;
@@ -615,8 +618,8 @@ export class OverworldEngine {
     if (t?.enter && this.near === t.stop) this.cb.onEnter(t.stop);
   }
 
-  /** Đường đi ngắn nhất theo ô — chỉ bước qua được chỗ chênh cao ≤ 1 bậc (vách cao hơn thì phải đi vòng). */
-  private bfs(start: { x: number; y: number }, goals: { x: number; y: number }[]) {
+  /** Đường đi ngắn nhất theo ô — chỉ bước qua được chỗ chênh cao ≤ 1 bậc (vách cao hơn thì phải đi vòng). Chỉ băng qua nước khi allowSwim. */
+  private bfs(start: { x: number; y: number }, goals: { x: number; y: number }[], allowSwim: boolean) {
     if (goals.length === 0) return null;
     const W = this.map.w;
     const key = (x: number, y: number) => y * W + x;
@@ -636,8 +639,8 @@ export class OverworldEngine {
         const nx = cx + dx;
         const ny = cy + dy;
         const nk = key(nx, ny);
-        if (prev.has(nk) || this.solidTile(nx, ny)) continue;
-        if (Math.abs(this.tileH(nx, ny) - this.tileH(cx, cy)) > 1) continue;
+        if (prev.has(nk) || !canStep(this.map, cx, cy, nx, ny)) continue;
+        if (!allowSwim && tileMode(this.map, nx, ny) === "swim") continue;
         prev.set(nk, cur);
         q.push(nk);
       }
@@ -656,7 +659,7 @@ export class OverworldEngine {
     for (let ty = y0; ty <= y1; ty++)
       for (let tx = x0; tx <= x1; tx++) {
         if (this.solidTile(tx, ty)) return true;
-        if (Math.abs(this.tileH(tx, ty) - base) > 1) return true;
+        if (Math.abs(this.tileH(tx, ty) - base) > MAX_STEP) return true;
       }
     return false;
   }
@@ -671,6 +674,7 @@ export class OverworldEngine {
     if (k.has("arrowleft") || k.has("a")) { vx -= 1; vy += 1; }
     if (k.has("arrowright") || k.has("d")) { vx += 1; vy -= 1; }
     const manual = vx !== 0 || vy !== 0;
+    const speed = MOVE_SPEED[this.player.mode];
 
     if (!manual && this.path.length) {
       const next = this.path[0];
@@ -679,7 +683,7 @@ export class OverworldEngine {
       const dx = gx - this.player.x;
       const dy = gy - this.player.y;
       const d = Math.hypot(dx, dy);
-      if (d < Math.max(0.06, SPEED * dt)) {
+      if (d < Math.max(0.06, speed * dt)) {
         this.player.x = gx;
         this.player.y = gy;
         this.path.shift();
@@ -695,8 +699,8 @@ export class OverworldEngine {
     if (moving) {
       const len = Math.hypot(vx, vy);
       const p = this.player;
-      const sx = (vx / len) * SPEED * dt;
-      const sy = (vy / len) * SPEED * dt;
+      const sx = (vx / len) * speed * dt;
+      const sy = (vy / len) * speed * dt;
       const ox = p.x;
       const oy = p.y;
       const fx = p.x;
@@ -708,9 +712,9 @@ export class OverworldEngine {
       const scrY = (vx + vy) / 2;
       if (Math.abs(scrX) > Math.abs(scrY)) p.dir = scrX > 0 ? "right" : "left";
       else p.dir = scrY > 0 ? "down" : "up";
-      p.anim += dt;
+      p.anim += p.mode === "swim" ? dt * 0.5 : dt;
       // đang tự đi mà kẹt (vướng góc) thì bỏ đường đi
-      if (!manual && Math.hypot(p.x - ox, p.y - oy) < SPEED * dt * 0.2) {
+      if (!manual && Math.hypot(p.x - ox, p.y - oy) < speed * dt * 0.2) {
         this.stuck += dt;
         if (this.stuck > 0.4) {
           this.path = [];
@@ -720,8 +724,43 @@ export class OverworldEngine {
       } else this.stuck = 0;
     } else this.player.anim = 0;
     this.player.moving = moving;
-    this.player.z = this.groundAt(this.player.x, this.player.y);
+    this.updateElevation(dt);
     this.computeNear();
+  }
+
+  /** Kiểu di chuyển theo ô đang đứng, và độ cao của chân (xuống nước thì chìm dần, nhấp nhô theo sóng). */
+  private updateElevation(dt: number) {
+    const p = this.player;
+    const mode = tileMode(this.map, Math.floor(p.x), Math.floor(p.y));
+    const target = mode === "swim" ? WATER_Z : this.groundAt(p.x, p.y);
+    if (mode !== p.mode) this.settling = true;
+    p.mode = mode;
+    if (this.settling) {
+      p.z += (target - p.z) * Math.min(1, dt * 12);
+      if (Math.abs(target - p.z) < 0.03) this.settling = false;
+    } else p.z = target;
+  }
+
+  /** Trạng thái để kiểm thử E2E (engine chỉ được gắn vào window.__vtMap khi URL có ?e2e). */
+  debugState() {
+    const p = this.player;
+    return { x: p.x, y: p.y, z: p.z, mode: p.mode, tx: Math.floor(p.x), ty: Math.floor(p.y), speed: MOVE_SPEED[p.mode], paths: this.path.length };
+  }
+
+  /** Đặt nhân vật vào giữa một ô (chỉ dùng cho kiểm thử E2E). */
+  debugTeleport(tx: number, ty: number) {
+    this.path = [];
+    this.target = null;
+    this.player.x = tx + 0.5;
+    this.player.y = ty + 0.5;
+    this.updateElevation(0.1);
+  }
+
+  /** Danh sách ô nước (để kiểm thử). */
+  debugWater() {
+    const out: { x: number; y: number }[] = [];
+    this.map.cells.forEach((row, y) => row.forEach((c, x) => c.ground === "water" && out.push({ x, y })));
+    return out;
   }
 
   private computeNear() {
@@ -967,11 +1006,14 @@ export class OverworldEngine {
     const g = this.ctx;
     const sx = this.projX(p.x, p.y);
     const sy = this.projY(p.x, p.y, p.z);
-    g.fillStyle = "rgba(0,0,0,0.3)";
-    g.beginPath();
-    g.ellipse(sx, sy, 8, 4, 0, 0, Math.PI * 2);
-    g.fill();
-    g.drawImage(this.sprites[p.dir][f], Math.round(sx - 16), Math.round(sy - 30), 32, 32);
+    if (p.mode === "swim") this.drawSwimmer(sx, this.projY(p.x, p.y, 0) + 2, (p.z - WATER_Z) * ZH, this.sprites[p.dir][f]);
+    else {
+      g.fillStyle = "rgba(0,0,0,0.3)";
+      g.beginPath();
+      g.ellipse(sx, sy, 8, 4, 0, 0, Math.PI * 2);
+      g.fill();
+      g.drawImage(this.sprites[p.dir][f], Math.round(sx - 16), Math.round(sy - 30), 32, 32);
+    }
 
     if (this.mark && this.time - this.mark.t < 0.6 && this.path.length) {
       const m = this.mark;
@@ -987,6 +1029,24 @@ export class OverworldEngine {
       g.closePath();
       g.stroke();
     }
+  }
+
+  /** Đang bơi: chỉ thấy nửa trên người nhô khỏi mặt nước, có vòng sóng quanh người. lift = số điểm ảnh người còn cao hơn mặt nước (lúc vừa nhảy xuống thì chìm dần). */
+  private drawSwimmer(sx: number, waterY: number, lift: number, sprite: HTMLCanvasElement) {
+    const g = this.ctx;
+    const cut = 22; // số hàng điểm ảnh phía trên của sprite còn nhìn thấy
+    const bob = Math.sin(this.time * 4) * 1;
+    g.drawImage(sprite, 0, 0, 32, cut, Math.round(sx - 16), Math.round(waterY - cut + 2 + bob - lift), 32, cut);
+    g.strokeStyle = "rgba(255,255,255,0.7)";
+    g.lineWidth = 1.5;
+    for (const k of [0, 1]) {
+      const t = (this.time * 1.5 + k * 0.5) % 1;
+      g.globalAlpha = 1 - t;
+      g.beginPath();
+      g.ellipse(sx, waterY, 7 + t * 8, 3 + t * 3.5, 0, 0, Math.PI * 2);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
   }
 
   // ------------------------------------------------------------ houses

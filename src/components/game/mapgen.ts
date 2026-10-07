@@ -35,6 +35,8 @@ export type Theme = {
   leaf: string;
   metal: boolean;
   npc: "robot" | "scientist" | "sailor";
+  /** Nước bơi được (chỉ trên bản đồ overworld); mặc định nước là vật cản. */
+  swimmable?: boolean;
 };
 
 export const THEMES: Record<string, Theme> = {
@@ -124,6 +126,7 @@ export const THEMES: Record<string, Theme> = {
     leaf: "#34d399",
     metal: false,
     npc: "robot",
+    swimmable: true,
   },
 };
 
