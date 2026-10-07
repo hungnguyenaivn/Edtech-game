@@ -1,277 +1,12 @@
-import { type Cell, type GameMap, THEMES, isSolid } from "./mapgen";
-import { MAX_STEP, MOVE_SPEED, type MoveMode, canStep, inStop, isBlocked, tileMode } from "./movement";
-import { carveRiver } from "./river";
+import { type Cell, type GameMap, isSolid } from "./mapgen";
+import { MAX_STEP, MOVE_SPEED, type MoveMode, canStep, isBlocked, tileMode } from "./movement";
+import { MAX_H, type OverworldMap, type StationInfo, type Stop } from "./overworld-gen";
+import { type DrawEnv, type Pt, TH, TW, ZH, drawLabel, drawStop, mix, rgb, roundRect, shade, tri } from "./overworld-draw";
 import * as S from "./sprites";
-import { type CharSprites, type Dir, buildCharacter, hashString, makeCanvas, rng } from "./sprites";
+import { type CharSprites, type Dir, buildCharacter, makeCanvas } from "./sprites";
 
-/** Màu mái nhà của từng level — bé nhìn màu là nhớ "nhà số mấy". */
-export const STOP_COLORS = ["#ff6b6b", "#ffb020", "#2fbf71", "#3b82f6", "#a855f7"];
-
-const MAP_W = 34;
-const GAP = 7; // số ô giữa hai ngôi nhà theo chiều dọc
-const XS = [14, 24, 6, 22, 8];
-const MAX_H = 5; // độ cao lớn nhất (đỉnh đồi)
-
-// Hình chiếu 2.5D (isometric): một ô = hình thoi TW×TH, mỗi bậc cao = ZH điểm ảnh.
-const TW = 32;
-const TH = 16;
-const ZH = 8;
-
-/** Một điểm dừng trên bản đồ: nhà level, hoặc kho báu ở cuối đường. Nhà chiếm 2×2 ô, cửa quay về phía +y. */
-export type Stop = { kind: "level" | "finish"; bx: number; by: number; h: number };
-export type OverworldMap = GameMap & { stops: Stop[]; height: number[][] };
-
-export type StationInfo = {
-  number: number;
-  title: string;
-  unlocked: boolean;
-  passed: boolean;
-  stars: number;
-  current: boolean;
-};
-
-
-/** Độ cao của sân nhà: lên xuống nhấp nhô nhưng nhìn chung cao dần, kho báu nằm trên đỉnh. */
-function stopHeights(levelCount: number): number[] {
-  const hs: number[] = [0];
-  for (let i = 1; i <= levelCount; i++) {
-    const prev = hs[i - 1];
-    let h = Math.round(i * 0.9 + Math.sin(i * 1.9) * 1.6);
-    h = Math.max(0, Math.min(MAX_H - 1, h));
-    hs.push(Math.max(prev - 3, Math.min(prev + 3, h)));
-  }
-  if (levelCount > 0) hs[levelCount] = Math.min(MAX_H, hs[levelCount - 1] + 3);
-  return hs;
-}
-
-/** Nhiễu mượt 2 tầng để nặn đồi núi hai bên đường. */
-function makeNoise(r: () => number, w: number, h: number) {
-  const layer = (cell: number) => {
-    const gw = Math.ceil(w / cell) + 2;
-    const gh = Math.ceil(h / cell) + 2;
-    const g = Array.from({ length: gh }, () => Array.from({ length: gw }, () => r()));
-    return (x: number, y: number) => {
-      const fx = x / cell;
-      const fy = y / cell;
-      const ix = Math.floor(fx);
-      const iy = Math.floor(fy);
-      const sm = (t: number) => t * t * (3 - 2 * t);
-      const tx = sm(fx - ix);
-      const ty = sm(fy - iy);
-      const a = g[iy][ix] + (g[iy][ix + 1] - g[iy][ix]) * tx;
-      const b = g[iy + 1][ix] + (g[iy + 1][ix + 1] - g[iy + 1][ix]) * tx;
-      return a + (b - a) * ty;
-    };
-  };
-  const big = layer(8);
-  const small = layer(3.5);
-  return (x: number, y: number) => big(x, y) * 0.75 + small(x, y) * 0.25;
-}
-
-/** Bản đồ cố định cho mỗi thế giới: con đường ngoằn ngoèo leo đồi từ dưới lên, nhà level 1..n rồi tới kho báu trên đỉnh. */
-export function buildOverworld(slug: string, levelCount: number): OverworldMap {
-  const theme = THEMES[slug] ?? THEMES["toan-ly-hoa"];
-  const r = rng(hashString(slug + ":overworld"));
-  const W = MAP_W;
-  const H = GAP * levelCount + 9;
-  const cells: Cell[][] = Array.from({ length: H }, () => Array.from({ length: W }, () => ({ ground: "A" as Cell["ground"], obj: null, decor: null })));
-  const inside = (x: number, y: number) => x > 0 && y > 0 && x < W - 1 && y < H - 1;
-  const frontRow = (i: number) => H - 5 - GAP * i;
-  const grid = <V>(v: V) => Array.from({ length: H }, () => Array<V>(W).fill(v));
-
-  const hs = stopHeights(levelCount);
-  const lastX = XS[(levelCount - 1) % XS.length];
-  const finishX = Math.abs(15 - lastX) >= 4 ? 15 : 24;
-  const stops: Stop[] = Array.from({ length: levelCount + 1 }, (_, i) => ({
-    kind: i < levelCount ? "level" : "finish",
-    bx: i < levelCount ? XS[i % XS.length] : finishX,
-    by: frontRow(i) - 2,
-    h: hs[i],
-  }));
-
-  // Mảng nền B cho đỡ đơn điệu
-  for (let i = 0; i < 26; i++) {
-    const cx = Math.floor(r() * W);
-    const cy = Math.floor(r() * H);
-    const rad = 1.5 + r() * 3;
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if ((x - cx) ** 2 + (y - cy) ** 2 < rad * rad) cells[y][x].ground = "B";
-  }
-
-  // Đường đi rộng 2 ô
-  const road = grid(false);
-  const carve = (x0: number, y0: number, x1: number, y1: number) => {
-    for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
-      for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
-        if (inside(x, y)) {
-          cells[y][x].ground = "path";
-          road[y][x] = true;
-        }
-  };
-  carve(stops[0].bx - 2, frontRow(0), stops[0].bx + 3, frontRow(0) + 2); // quảng trường xuất phát
-  for (let i = 0; i < levelCount; i++) {
-    const a = stops[i];
-    const b = stops[i + 1];
-    carve(a.bx, frontRow(i), b.bx + 1, frontRow(i) + 1);
-    carve(b.bx, frontRow(i + 1), b.bx + 1, frontRow(i) + 1);
-  }
-
-  // ---- Địa hình: đường là các bậc thang dốc, sân nhà phẳng; xa đường thì thành đồi/thung lũng theo nhiễu
-  const rowRamp = (y: number) => {
-    for (let i = 0; i <= levelCount; i++) {
-      if (y >= frontRow(i)) return hs[i];
-      if (i < levelCount && y > frontRow(i + 1)) {
-        const t = (frontRow(i) - y) / (frontRow(i) - frontRow(i + 1));
-        return Math.round(hs[i] + (hs[i + 1] - hs[i]) * t);
-      }
-    }
-    return hs[levelCount];
-  };
-  const height = grid(0);
-  const locked = grid(false);
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++)
-      if (road[y][x]) {
-        locked[y][x] = true;
-        height[y][x] = rowRamp(y);
-      }
-  for (const s of stops)
-    for (let y = s.by - 1; y <= s.by + 2; y++)
-      for (let x = s.bx - 1; x <= s.bx + 2; x++)
-        if (inside(x, y)) {
-          locked[y][x] = true;
-          height[y][x] = s.h;
-        }
-
-  // lan độ cao từ các ô cố định ra xung quanh
-  const dist = grid(-1);
-  const src = grid(0);
-  const q: [number, number][] = [];
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++)
-      if (locked[y][x]) {
-        dist[y][x] = 0;
-        src[y][x] = height[y][x];
-        q.push([x, y]);
-      }
-  for (let i = 0; i < q.length; i++) {
-    const [x, y] = q[i];
-    for (let dy = -1; dy <= 1; dy++)
-      for (let dx = -1; dx <= 1; dx++) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H || dist[ny][nx] >= 0) continue;
-        dist[ny][nx] = dist[y][x] + 1;
-        src[ny][nx] = src[y][x];
-        q.push([nx, ny]);
-      }
-  }
-  const noise = makeNoise(r, W, H);
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++) {
-      if (locked[y][x]) continue;
-      const t = Math.max(0, Math.min(1, (dist[y][x] - 1) / 4));
-      const n = Math.max(0, Math.min(MAX_H, Math.floor(Math.max(0, noise(x, y) - 0.12) ** 1.6 * 8)));
-      height[y][x] = Math.round(src[y][x] + (n - src[y][x]) * t);
-    }
-
-  // Vùng cần chừa trống: đường + nhà (và 1–2 ô quanh chúng)
-  const dilate = (mask: boolean[][], n: number) =>
-    mask.map((row, y) => row.map((_, x) => {
-      for (let dy = -n; dy <= n; dy++) for (let dx = -n; dx <= n; dx++) if (mask[y + dy]?.[x + dx]) return true;
-      return false;
-    }));
-  const reserved = road.map((row, y) => row.map((v, x) => v || inStop(stops, x, y)));
-  const nearRoad = dilate(reserved, 1);
-  const clear2 = dilate(locked, 3);
-
-  // Ao nước nằm dưới thung lũng (độ cao 0) — thế giới "phòng lab" không có
-  const pond = grid(false);
-  if (!theme.metal && !theme.swimmable) {
-    for (let i = 0; i < 24; i++) {
-      const cx = 4 + Math.floor(r() * (W - 8));
-      const cy = 4 + Math.floor(r() * (H - 8));
-      const rx = 2 + r() * 1.6;
-      const ry = 1.5 + r() * 1.1;
-      const shape = (x: number, y: number) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
-      let ok = true;
-      for (let y = 1; y < H - 1 && ok; y++) for (let x = 1; x < W - 1; x++) if (shape(x, y) < 2 && clear2[y][x]) ok = false;
-      if (!ok) continue;
-      for (let y = 1; y < H - 1; y++)
-        for (let x = 1; x < W - 1; x++) {
-          const v = shape(x, y);
-          if (v < 1) {
-            cells[y][x].ground = "water";
-            pond[y][x] = true;
-            height[y][x] = 0;
-          } else if (v < 1.7 && cells[y][x].ground !== "water") cells[y][x].ground = "sand";
-        }
-    }
-  }
-
-  // Làm mượt: ô kề nhau lệch tối đa 2 bậc (vách đá thấp), quanh ao thì dốc xuống bờ
-  for (let pass = 0; pass < 6; pass++)
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        if (locked[y][x] || pond[y][x]) continue;
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dx = -1; dx <= 1; dx++) {
-            const v = height[y + dy]?.[x + dx];
-            if (v === undefined || (dx === 0 && dy === 0)) continue;
-            lo = Math.min(lo, v);
-            hi = Math.max(hi, v);
-          }
-        if (hi - 2 <= lo + 2) height[y][x] = Math.max(hi - 2, Math.min(lo + 2, height[y][x]));
-      }
-
-  if (theme.swimmable) carveRiver({ seed: hashString(slug + ":river"), cells, height, locked, w: W, h: H });
-
-  // Viền bản đồ
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++)
-      if (!inside(x, y)) {
-        if (theme.border === "wall") cells[y][x].ground = "wall";
-        else if (cells[y][x].ground !== "water") cells[y][x].obj = theme.border as Cell["obj"];
-      }
-
-  // Cây cối, bụi, đá rải hai bên đường — trên núi cao chỉ còn đá
-  const total = theme.obstacles.reduce((s, o) => s + o.w, 0);
-  const signLabels = ["ABC", "HI!", "A-Z", "OK", "WOW", "YES"];
-  for (let y = 1; y < H - 1; y++)
-    for (let x = 1; x < W - 1; x++) {
-      const c = cells[y][x];
-      if (nearRoad[y][x] || c.ground === "path" || c.ground === "water" || c.ground === "wall" || r() > 0.2) continue;
-      let pick = r() * total;
-      let kind = theme.obstacles.find((o) => (pick -= o.w) <= 0)!.kind;
-      if (!theme.metal && height[y][x] >= 4 && (kind === "tree" || kind === "palm" || kind === "bush")) kind = "rock";
-      c.obj = kind;
-      if (kind === "sign") c.label = signLabels[Math.floor(r() * signLabels.length)];
-    }
-  for (let y = 1; y < H - 1; y++)
-    for (let x = 1; x < W - 1; x++) {
-      const c = cells[y][x];
-      if (!isSolid(c) && c.ground !== "path" && c.ground !== "sand" && r() < 0.08) c.decor = theme.decor[Math.floor(r() * theme.decor.length)];
-    }
-
-  const spawn = { x: stops[0].bx, y: stops[0].by + 3 };
-  const moveMap = { w: W, h: H, cells, height, stops, theme };
-  const reachable = grid(false);
-  const bq: [number, number][] = [[spawn.x, spawn.y]];
-  reachable[spawn.y][spawn.x] = true;
-  for (let i = 0; i < bq.length; i++) {
-    const [x, y] = bq[i];
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H || reachable[ny][nx] || !canStep(moveMap, x, y, nx, ny)) continue;
-      reachable[ny][nx] = true;
-      bq.push([nx, ny]);
-    }
-  }
-
-  return { w: W, h: H, cells, spawn, reachable, theme, stops, height };
-}
+export { STOP_COLORS, buildOverworld } from "./overworld-gen";
+export type { OverworldMap, StationInfo, Stop } from "./overworld-gen";
 
 // ---------------------------------------------------------------- engine
 const WATER_Z = -0.3; // mặt nước thấp hơn nền một chút khi bơi
@@ -286,7 +21,6 @@ export type OverworldCallbacks = {
   onEnter: (stopIndex: number) => void;
 };
 
-type Pt = [number, number];
 type Ent = { key: number; draw: () => void };
 
 export class OverworldEngine {
@@ -780,6 +514,18 @@ export class OverworldEngine {
   }
 
   // ------------------------------------------------------------ render
+  private drawEnv(): DrawEnv {
+    return {
+      g: this.ctx,
+      time: this.time,
+      won: this.won,
+      stations: this.stations,
+      projX: (x, y) => this.projX(x, y),
+      projY: (x, y, z) => this.projY(x, y, z),
+      stopAnchor: (s) => this.stopAnchor(s),
+    };
+  }
+
   private render() {
     const g = this.ctx;
     const dpr = window.devicePixelRatio || 1;
@@ -817,7 +563,7 @@ export class OverworldEngine {
         if (sx < vx0 || sx > vx1 || sy < vy0 || sy > vy1) continue;
         this.drawTile(x, y, sx, sy, frame);
         const stop = map.stops.findIndex((st) => st.bx + 1 === x && st.by + 1 === y);
-        if (stop >= 0) this.drawStop(map.stops[stop], stop);
+        if (stop >= 0) drawStop(this.drawEnv(), map.stops[stop], stop);
       }
       if (s === ps) {
         this.drawPlayer();
@@ -825,7 +571,8 @@ export class OverworldEngine {
       }
     }
     if (!playerDrawn) this.drawPlayer();
-    map.stops.forEach((s, i) => this.drawLabel(s, i));
+    const env = this.drawEnv();
+    map.stops.forEach((s, i) => drawLabel(env, s, i));
   }
 
   private drawTile(x: number, y: number, sx: number, sy: number, frame: number) {
@@ -1048,190 +795,4 @@ export class OverworldEngine {
     }
     g.globalAlpha = 1;
   }
-
-  // ------------------------------------------------------------ houses
-  private drawStop(s: Stop, i: number) {
-    const g = this.ctx;
-    const x0 = this.projX(s.bx, s.by);
-    const y0 = this.projY(s.bx, s.by, s.h);
-    /** (u,v) = ô trong sân 2×2, z = độ cao điểm ảnh so với mặt sân */
-    const P = (u: number, v: number, z: number): Pt => [x0 + (u - v) * (TW / 2), y0 + (u + v) * (TH / 2) - z];
-    const poly = (fill: string | null, pts: Pt[], stroke?: string) => {
-      g.beginPath();
-      pts.forEach(([x, y], k) => (k ? g.lineTo(x, y) : g.moveTo(x, y)));
-      g.closePath();
-      if (fill) {
-        g.fillStyle = fill;
-        g.fill();
-      }
-      if (stroke) {
-        g.strokeStyle = stroke;
-        g.lineWidth = 1;
-        g.lineJoin = "round";
-        g.stroke();
-      }
-    };
-    const dark = "#1d1b2e";
-
-    // bóng đổ + vòng sáng nếu là level hiện tại
-    poly("rgba(0,0,0,0.22)", [P(0.15, 0.15, 0), P(1.95, 0.15, 0), P(1.95, 1.95, 0), P(0.15, 1.95, 0)]);
-
-    if (s.kind === "finish") {
-      poly("#ffd86b", [P(0.35, 0.35, 1), P(1.65, 0.35, 1), P(1.65, 1.65, 1), P(0.35, 1.65, 1)], dark);
-      const [ex, ey] = P(1, 1, 8);
-      g.font = "30px sans-serif";
-      g.textAlign = "center";
-      g.textBaseline = "alphabetic";
-      const bob = Math.sin(this.time * 3) * 2;
-      g.fillStyle = "#000";
-      g.fillText(this.won ? "🏆" : "🎁", ex, ey + bob);
-      if (this.won) {
-        g.fillStyle = "#ffe27a";
-        g.font = "bold 10px sans-serif";
-        for (let k = 0; k < 3; k++) g.fillText("✦", ex - 14 + k * 14, ey - 30 + Math.sin(this.time * 4 + k * 2) * 3);
-      }
-      return;
-    }
-
-    const info = this.stations[i];
-    const locked = !info.unlocked;
-    const color = STOP_COLORS[i % STOP_COLORS.length];
-    const wall = locked ? "#a9adc9" : shade(color, 70);
-    const wallR = shade(wall, -34);
-    const roof = locked ? "#767a9e" : color;
-
-    if (info.current) {
-      const a = 0.35 + Math.sin(this.time * 5) * 0.15;
-      poly(`rgba(255,200,60,${a})`, [P(-0.4, -0.4, 0), P(2.4, -0.4, 0), P(2.4, 2.4, 0), P(-0.4, 2.4, 0)]);
-    }
-
-    const a = 0.12;
-    const b = 1.88;
-    const WH = 26;
-    const RH = 20;
-    // tường: mặt trái quay về +y (có cửa), mặt phải quay về +x
-    poly(wall, [P(a, b, 0), P(b, b, 0), P(b, b, WH), P(a, b, WH)], dark);
-    poly(wallR, [P(b, a, 0), P(b, b, 0), P(b, b, WH), P(b, a, WH)], dark);
-    // cửa
-    poly(locked ? "#6b6f94" : "#8a5a2c", [P(0.78, b, 0), P(1.22, b, 0), P(1.22, b, 13), P(0.78, b, 13)], dark);
-    // cửa sổ
-    const win = locked ? "#8d91b3" : "#bfe9ff";
-    poly(win, [P(0.38, b, 9), P(0.6, b, 9), P(0.6, b, 17), P(0.38, b, 17)], dark);
-    poly(win, [P(1.4, b, 9), P(1.62, b, 9), P(1.62, b, 17), P(1.4, b, 17)], dark);
-    poly(shade(win, -30), [P(b, 0.7, 9), P(b, 1.3, 9), P(b, 1.3, 17), P(b, 0.7, 17)], dark);
-    // mái nhà hình chóp
-    const e0 = -0.1;
-    const e1 = 2.1;
-    const apex = P(1, 1, WH + RH);
-    poly(shade(roof, -50), [P(e0, e0, WH), P(e1, e0, WH), apex], dark);
-    poly(shade(roof, -60), [P(e0, e0, WH), P(e0, e1, WH), apex], dark);
-    poly(shade(roof, 12), [P(e0, e1, WH), P(e1, e1, WH), apex], dark);
-    poly(shade(roof, -34), [P(e1, e0, WH), P(e1, e1, WH), apex], dark);
-    // biển số trên cửa
-    const [bx, by] = P(1, b, WH - 4.5);
-    g.fillStyle = dark;
-    g.beginPath();
-    g.arc(bx, by, 5.5, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = "#fff";
-    g.beginPath();
-    g.arc(bx, by, 4.5, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = dark;
-    g.font = "bold 8px 'Baloo 2', sans-serif";
-    g.textAlign = "center";
-    g.textBaseline = "middle";
-    g.fillText(String(info.number), bx, by + 0.5);
-    if (locked) {
-      const [lx, ly] = P(1.1, b, 5);
-      g.fillStyle = dark;
-      g.fillRect(lx - 3.5, ly - 2, 7, 6);
-      g.fillStyle = "#ffcf3d";
-      g.fillRect(lx - 2.5, ly - 1, 5, 4);
-      g.strokeStyle = dark;
-      g.lineWidth = 1;
-      g.beginPath();
-      g.arc(lx, ly - 2, 2.2, Math.PI, 0);
-      g.stroke();
-    }
-    if (info.passed) {
-      g.fillStyle = dark;
-      g.fillRect(apex[0] - 1, apex[1] - 13, 2, 14);
-      g.fillStyle = "#2fbf71";
-      g.fillRect(apex[0] + 1, apex[1] - 13, 8, 5);
-    }
-  }
-
-  private drawLabel(s: Stop, i: number) {
-    const g = this.ctx;
-    const [ax, ay] = this.stopAnchor(s);
-    const apexY = ay - (s.kind === "finish" ? 36 : 46);
-    const text = s.kind === "finish" ? (this.won ? "Nhà vô địch!" : "Kho báu") : this.stations[i].title;
-    const locked = s.kind === "level" && !this.stations[i].unlocked;
-    g.font = "bold 8px 'Be Vietnam Pro', sans-serif";
-    g.textAlign = "center";
-    g.textBaseline = "middle";
-    const w = g.measureText(text).width + 10;
-    const py = apexY - 18;
-    g.fillStyle = "#1d1b2e";
-    roundRect(g, ax - w / 2 - 1, py - 7, w + 2, 14, 5);
-    g.fillStyle = locked ? "#c9cce3" : "#fff8ea";
-    roundRect(g, ax - w / 2, py - 6, w, 12, 4.5);
-    g.fillStyle = locked ? "#5b5f82" : "#1f2140";
-    g.fillText(text, ax, py + 0.5);
-
-    if (s.kind === "level") {
-      const info = this.stations[i];
-      if (info.unlocked) {
-        g.font = "10px sans-serif";
-        for (let k = 0; k < 3; k++) {
-          g.fillStyle = k < info.stars ? "#ffc93c" : "#00000055";
-          g.fillText("★", ax - 11 + k * 11, py + 14);
-        }
-      }
-      if (info.current) {
-        const bounce = Math.sin(this.time * 6) * 2;
-        tri(g, "#1d1b2e", ax - 6, py - 22 + bounce, ax + 6, py - 22 + bounce, ax, py - 13 + bounce);
-        tri(g, "#ffb020", ax - 4.5, py - 21 + bounce, ax + 4.5, py - 21 + bounce, ax, py - 15 + bounce);
-      }
-    }
-  }
-}
-
-function tri(g: CanvasRenderingContext2D, fill: string, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number) {
-  g.fillStyle = fill;
-  g.beginPath();
-  g.moveTo(x1, y1);
-  g.lineTo(x2, y2);
-  g.lineTo(x3, y3);
-  g.closePath();
-  g.fill();
-}
-
-function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  g.beginPath();
-  g.roundRect(x, y, w, h, r);
-  g.fill();
-}
-
-function rgb(c: string): [number, number, number] {
-  if (c.startsWith("#")) {
-    const n = parseInt(c.slice(1), 16);
-    return [n >> 16, (n >> 8) & 255, n & 255];
-  }
-  const m = c.match(/\d+/g)!.map(Number);
-  return [m[0], m[1], m[2]];
-}
-
-function shade(color: string, amt: number) {
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v + amt)));
-  const [r, g, b] = rgb(color);
-  return `rgb(${clamp(r)},${clamp(g)},${clamp(b)})`;
-}
-
-function mix(a: string, b: string, t: number) {
-  const x = rgb(a);
-  const y = rgb(b);
-  const c = (i: number) => Math.round(x[i] + (y[i] - x[i]) * t);
-  return `rgb(${c(0)},${c(1)},${c(2)})`;
 }
