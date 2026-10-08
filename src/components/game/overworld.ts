@@ -1,9 +1,10 @@
-import { type Cell, type GameMap, isSolid } from "./mapgen";
-import { MAX_STEP, MOVE_SPEED, type MoveMode, canStep, isBlocked, tileMode } from "./movement";
+import { MAX_STEP, MOVE_SPEED, type MoveMode, canStep, isBlocked, surfaceH, tileMode } from "./movement";
 import { MAX_H, type OverworldMap, type StationInfo, type Stop } from "./overworld-gen";
-import { type DrawEnv, type Pt, TH, TW, ZH, drawLabel, drawStop, mix, rgb, roundRect, shade, tri } from "./overworld-draw";
-import * as S from "./sprites";
-import { type CharSprites, type Dir, buildCharacter, makeCanvas } from "./sprites";
+import { type DrawEnv, type Pt, TH, TW, ZH, drawLabel, drawStop } from "./overworld-draw";
+import { type TerrainEnv, WALL_EXTRA, drawTile, paintTerrain } from "./overworld-terrain";
+import { CANOPY_H, type Climb, climbPose, defaultEnds, inDeck, isLadderEdge, stepClimb } from "./treehouse";
+import { type TreeDrawEnv, canopyBox, drawTreeHouse, drawTreeHouseLabel } from "./treehouse-draw";
+import { type CharSprites, type Dir, buildCharacter } from "./sprites";
 
 export { STOP_COLORS, buildOverworld } from "./overworld-gen";
 export type { OverworldMap, StationInfo, Stop } from "./overworld-gen";
@@ -14,23 +15,18 @@ const RADIUS = 0.22; // nửa bề rộng chân nhân vật (ô)
 const ENTER_DIST = 1.4; // ô
 const DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const MOVE_KEYS = ["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"];
-const WALL_EXTRA = 2; // tường viền cao hơn nền 2 bậc
 
 export type OverworldCallbacks = {
   onNear: (stopIndex: number | null) => void;
   onEnter: (stopIndex: number) => void;
 };
 
-type Ent = { key: number; draw: () => void };
 
 export class OverworldEngine {
   private ctx: CanvasRenderingContext2D;
   /** Độ cao hiển thị (tường viền cộng thêm WALL_EXTRA). */
   private dh: number[][];
-  private top: string[][];
-  private sideL: string[][];
-  private sideR: string[][];
-  private lip: (string | null)[][];
+  private tenv: TerrainEnv;
   private player: { x: number; y: number; z: number; dir: Dir; moving: boolean; anim: number; mode: MoveMode };
   private sprites: CharSprites;
   private spriteCache = new Map<string, HTMLCanvasElement>();
@@ -43,6 +39,8 @@ export class OverworldEngine {
   private time = 0;
   private stuck = 0;
   private settling = false;
+  /** Đang leo thang nhà cây (null khi không leo). */
+  private climb: Climb | null = null;
   private near: number | null = null;
   private zoom = 2;
   private cam = { x: 0, y: 0 };
@@ -63,13 +61,10 @@ export class OverworldEngine {
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ox = map.h * (TW / 2) + TW;
-    this.oy = MAX_H * ZH + 64;
+    this.oy = Math.max(MAX_H, map.treeHouse ? map.treeHouse.z + CANOPY_H + 2 : 0) * ZH + 64;
     this.dh = map.height.map((row, y) => row.map((h, x) => h + (map.cells[y][x].ground === "wall" ? WALL_EXTRA : 0)));
-    this.top = [];
-    this.sideL = [];
-    this.sideR = [];
-    this.lip = [];
-    this.paintTerrain();
+    const colors = paintTerrain(map);
+    this.tenv = { ...colors, g: this.ctx, map, dh: this.dh, time: 0, spriteCache: this.spriteCache };
     const s = map.stops[startStop];
     const px = s.bx + 1;
     const py = s.by + 3.2;
@@ -77,85 +72,6 @@ export class OverworldEngine {
     this.sprites = buildCharacter({ shirt: avatarColor, hair: "#2b1d16", skin });
     this.bind();
     this.resize();
-  }
-
-  /** Tính sẵn màu mặt trên + hai vách của từng ô theo loại đất và độ cao. */
-  private paintTerrain() {
-    const { map } = this;
-    const th = map.theme;
-    for (let y = 0; y < map.h; y++) {
-      const top: string[] = [];
-      const sl: string[] = [];
-      const sr: string[] = [];
-      const lip: (string | null)[] = [];
-      for (let x = 0; x < map.w; x++) {
-        const cell = map.cells[y][x];
-        const h = map.height[y][x];
-        const chk = (x + y) & 1 ? 4 : 0;
-        let t: string;
-        let l: string;
-        let rr: string;
-        let lp: string | null = null;
-        switch (cell.ground) {
-          case "path":
-            t = shade(th.path, chk + h * 2);
-            l = shade(th.path, -48);
-            rr = shade(th.path, -70);
-            break;
-          case "sand":
-            t = shade(th.sand, chk);
-            l = shade(th.sand, -52);
-            rr = shade(th.sand, -74);
-            break;
-          case "water":
-            t = th.water;
-            l = shade(th.water, -40);
-            rr = shade(th.water, -60);
-            break;
-          case "wall":
-            t = shade(th.wall, 10);
-            l = shade(th.wall, -34);
-            rr = shade(th.wall, -58);
-            break;
-          default: {
-            const base = cell.ground === "A" ? th.groundA : th.groundB;
-            if (th.metal) {
-              t = shade(base, chk + h * 5);
-              l = "#262d5a";
-              rr = "#1b2147";
-              lp = shade(t, -16);
-            } else if (h >= 5) {
-              t = chk ? "#f2f6fc" : "#e6edf8"; // đỉnh núi phủ tuyết
-              l = "#aab3c4";
-              rr = "#8992a6";
-              lp = "#dbe3f0";
-            } else if (h === 4) {
-              t = mix(base, "#9aa0a6", 0.55); // núi đá
-              l = "#8b8f9a";
-              rr = "#6f7380";
-            } else if (h === 3) {
-              t = mix(base, "#c4c466", 0.3); // đồi cỏ khô
-              l = "#8a6540";
-              rr = "#6f4f31";
-              lp = shade(t, -26);
-            } else {
-              t = shade(base, chk);
-              l = "#8a6540";
-              rr = "#6f4f31";
-              lp = shade(t, -28);
-            }
-          }
-        }
-        top.push(t);
-        sl.push(l);
-        sr.push(rr);
-        lip.push(lp);
-      }
-      this.top.push(top);
-      this.sideL.push(sl);
-      this.sideR.push(sr);
-      this.lip.push(lip);
-    }
   }
 
   start() {
@@ -185,6 +101,10 @@ export class OverworldEngine {
     this.keys.clear();
     this.path = [];
     this.target = null;
+    if (this.climb) {
+      this.climb.dir = 0;
+      this.climb.auto = false;
+    }
   }
 
   /** Nút điều hướng trên màn hình cảm ứng. */
@@ -265,8 +185,9 @@ export class OverworldEngine {
     return isBlocked(this.map, tx, ty);
   }
 
+  /** Độ cao mặt đứng (sàn nhà cây hoặc mặt đất) — dùng cho đi lại; vẽ địa hình thì dùng dh. */
   private tileH(tx: number, ty: number) {
-    return this.map.height[ty]?.[tx] ?? 0;
+    return surfaceH(this.map, tx, ty);
   }
 
   /** Độ cao mặt đất ngay dưới chân (nội suy giữa các ô, để leo dốc trông mượt). */
@@ -292,13 +213,14 @@ export class OverworldEngine {
   /** Ô nào đang nằm dưới điểm chạm trên màn hình? (xét từng bậc cao, lấy ô gần camera nhất) */
   private pickTile(wx: number, wy: number) {
     let best: { x: number; y: number } | null = null;
-    for (let hh = 0; hh <= MAX_H + WALL_EXTRA; hh++) {
+    const maxH = Math.max(MAX_H + WALL_EXTRA, this.map.treeHouse?.z ?? 0);
+    for (let hh = 0; hh <= maxH; hh++) {
       const a = (wx - this.ox) / (TW / 2);
       const b = (wy - this.oy + hh * ZH) / (TH / 2);
       const tx = Math.floor((a + b) / 2);
       const ty = Math.floor((b - a) / 2);
       if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) continue;
-      if (this.map.height[ty][tx] !== hh) continue;
+      if (this.tileH(tx, ty) !== hh) continue;
       if (!best || tx + ty > best.x + best.y) best = { x: tx, y: ty };
     }
     return best;
@@ -334,11 +256,18 @@ export class OverworldEngine {
   }
 
   private routeTo(goals: { x: number; y: number }[], target: { stop: number; enter: boolean } | null) {
-    const start = { x: Math.floor(this.player.x), y: Math.floor(this.player.y) };
+    const th = this.map.treeHouse;
+    // đang leo dở: tìm đường từ chân thang, rồi leo tiếp lên hoặc xuống tuỳ đường đi
+    const start = this.climb && th ? { ...th.foot } : { x: Math.floor(this.player.x), y: Math.floor(this.player.y) };
     const open = goals.filter((g) => !this.solidTile(g.x, g.y));
     const route = this.bfs(start, open, false) ?? this.bfs(start, open, true);
     if (!route) return;
-    this.path = [start, ...route];
+    if (this.climb && th) {
+      const up = route.length > 0 && route[0].x === th.top.x && route[0].y === th.top.y;
+      this.climb.dir = up ? 1 : -1;
+      this.climb.auto = true;
+      this.path = up ? route : [start, ...route];
+    } else this.path = [start, ...route];
     this.target = target;
     this.mark = { x: goals[0].x, y: goals[0].y, t: this.time };
     if (route.length === 0 && target) this.arrive();
@@ -410,6 +339,12 @@ export class OverworldEngine {
     const manual = vx !== 0 || vy !== 0;
     const speed = MOVE_SPEED[this.player.mode];
 
+    if (this.climb || this.maybeStartClimb(manual, vx, vy)) {
+      this.updateClimb(dt, manual, vy);
+      this.computeNear();
+      return;
+    }
+
     if (!manual && this.path.length) {
       const next = this.path[0];
       const gx = next.x + 0.5;
@@ -462,6 +397,55 @@ export class OverworldEngine {
     this.computeNear();
   }
 
+  /** Bắt đầu leo khi: giữ phím đi về phía sàn ở chân thang (hoặc ra mép ở đầu thang), hoặc đường đi tự động bước qua thang. */
+  private maybeStartClimb(manual: boolean, vx: number, vy: number) {
+    const th = this.map.treeHouse;
+    if (!th) return false;
+    const p = this.player;
+    const tx = Math.floor(p.x);
+    const ty = Math.floor(p.y);
+    const atFoot = tx === th.foot.x && ty === th.foot.y;
+    const atTop = tx === th.top.x && ty === th.top.y;
+    let dir: 1 | -1 | 0 = 0;
+    if (manual) {
+      if (atFoot && vy < 0 && vx <= 0 && p.y - th.foot.y < 0.45) dir = 1;
+      else if (atTop && vy > 0 && vx >= 0 && p.y - th.top.y > 0.55) dir = -1;
+    } else if (this.path.length && Math.hypot(p.x - tx - 0.5, p.y - ty - 0.5) < 0.1) {
+      const next = this.path[0];
+      if (isLadderEdge(th, tx, ty, next.x, next.y)) dir = atFoot ? 1 : -1;
+    }
+    if (!dir) return false;
+    const ends = defaultEnds(th);
+    const here = { x: p.x, y: p.y };
+    this.climb = { t: dir > 0 ? 0 : 1, dir, auto: !manual, bottom: dir > 0 ? here : ends.bottom, topPos: dir > 0 ? ends.topPos : here };
+    p.mode = "climb";
+    this.settling = false;
+    return true;
+  }
+
+  private updateClimb(dt: number, manual: boolean, vy: number) {
+    const th = this.map.treeHouse!;
+    const c = this.climb!;
+    const p = this.player;
+    if (manual) {
+      c.auto = false;
+      c.dir = vy < 0 ? 1 : vy > 0 ? -1 : 0;
+    } else if (!c.auto) c.dir = 0;
+    stepClimb(th, c, dt);
+    const pose = climbPose(th, c);
+    p.x = pose.x;
+    p.y = pose.y;
+    p.z = pose.z;
+    p.dir = "up";
+    p.moving = c.dir !== 0;
+    if (p.moving) p.anim += dt;
+    if ((c.t >= 1 && c.dir > 0) || (c.t <= 0 && c.dir < 0)) {
+      this.climb = null;
+      p.mode = "walk";
+      p.z = this.groundAt(p.x, p.y);
+    }
+  }
+
   /** Kiểu di chuyển theo ô đang đứng, và độ cao của chân (xuống nước thì chìm dần, nhấp nhô theo sóng). */
   private updateElevation(dt: number) {
     const p = this.player;
@@ -478,16 +462,42 @@ export class OverworldEngine {
   /** Trạng thái để kiểm thử E2E (engine chỉ được gắn vào window.__vtMap khi URL có ?e2e). */
   debugState() {
     const p = this.player;
-    return { x: p.x, y: p.y, z: p.z, mode: p.mode, tx: Math.floor(p.x), ty: Math.floor(p.y), speed: MOVE_SPEED[p.mode], paths: this.path.length };
+    const tx = Math.floor(p.x);
+    const ty = Math.floor(p.y);
+    return {
+      x: p.x,
+      y: p.y,
+      z: p.z,
+      mode: p.mode,
+      tx,
+      ty,
+      speed: MOVE_SPEED[p.mode],
+      paths: this.path.length,
+      climbT: this.climb?.t ?? null,
+      climbDir: this.climb?.dir ?? 0,
+      onDeck: inDeck(this.map.treeHouse, tx, ty),
+      surface: this.tileH(tx, ty),
+    };
   }
 
   /** Đặt nhân vật vào giữa một ô (chỉ dùng cho kiểm thử E2E). */
   debugTeleport(tx: number, ty: number) {
     this.path = [];
     this.target = null;
+    this.climb = null;
+    this.player.mode = "walk";
     this.player.x = tx + 0.5;
     this.player.y = ty + 0.5;
     this.updateElevation(0.1);
+  }
+
+  /** Nhà trên cây của bản đồ (bản sao, để kiểm thử), null nếu không có. */
+  debugTreeHouse() {
+    const th = this.map.treeHouse;
+    if (!th) return null;
+    const deck: { x: number; y: number }[] = [];
+    for (let y = th.y; y <= th.y + 2; y++) for (let x = th.x; x <= th.x + 2; x++) deck.push({ x, y });
+    return { x: th.x, y: th.y, z: th.z, g: th.g, foot: { ...th.foot }, top: { ...th.top }, deck };
   }
 
   /** Danh sách ô nước (để kiểm thử). */
@@ -528,6 +538,7 @@ export class OverworldEngine {
 
   private render() {
     const g = this.ctx;
+    this.tenv.time = this.time;
     const dpr = window.devicePixelRatio || 1;
     const view = this.viewSize();
     const { map, player: p } = this;
@@ -551,6 +562,13 @@ export class OverworldEngine {
     const vy1 = this.cam.y + view.h + 40 + MAX_H * ZH;
     const ps = Math.floor(p.x) + Math.floor(p.y);
     let playerDrawn = false;
+    const th = map.treeHouse;
+    const sFront = th ? th.x + th.y + 4 : -1; // đường chéo của mép trước sàn (cũng là của chân thang)
+    const onTree = !!th && (p.mode === "climb" || inDeck(th, Math.floor(p.x), Math.floor(p.y)));
+    // đứng dưới đất ngay trước mặt +x / +y của sàn: tuy đường chéo nhỏ hơn nhưng vẫn ở trước cột chống → vẽ sau nhà cây
+    const inFront =
+      !!th && !onTree && ps >= sFront - 2 && ps < sFront && (p.y >= th.y + 3 || p.x >= th.x + 3) &&
+      p.x > th.x - 2 && p.x < th.x + 5 && p.y > th.y - 2 && p.y < th.y + 5;
     const frame = Math.floor(this.time * 1.6);
 
     for (let s = 0; s <= map.w + map.h - 2; s++) {
@@ -561,11 +579,16 @@ export class OverworldEngine {
         const sx = this.projX(x, y);
         const sy = this.projY(x, y, this.dh[y][x]);
         if (sx < vx0 || sx > vx1 || sy < vy0 || sy > vy1) continue;
-        this.drawTile(x, y, sx, sy, frame);
+        drawTile(this.tenv, x, y, sx, sy, frame);
         const stop = map.stops.findIndex((st) => st.bx + 1 === x && st.by + 1 === y);
         if (stop >= 0) drawStop(this.drawEnv(), map.stops[stop], stop);
       }
-      if (s === ps) {
+      if (th && s === sFront) {
+        drawTreeHouse(this.treeEnv(), th, { player: onTree ? () => this.drawPlayer() : null, canopyAlpha: this.canopyAlpha(onTree, ps < sFront) });
+        if (onTree || inFront) playerDrawn = true;
+        if (inFront) this.drawPlayer();
+      }
+      if (s === ps && !onTree && !inFront) {
         this.drawPlayer();
         playerDrawn = true;
       }
@@ -573,178 +596,21 @@ export class OverworldEngine {
     if (!playerDrawn) this.drawPlayer();
     const env = this.drawEnv();
     map.stops.forEach((s, i) => drawLabel(env, s, i));
+    if (th) drawTreeHouseLabel(this.treeEnv(), th);
   }
 
-  private drawTile(x: number, y: number, sx: number, sy: number, frame: number) {
-    const g = this.ctx;
-    const cell = this.map.cells[y][x];
-    const h = this.dh[y][x];
-    const water = cell.ground === "water";
-    const yy = water ? sy + 2 : sy;
-
-    if (!water) {
-      const dl = h - (this.dh[y + 1]?.[x] ?? -2);
-      const dr = h - (this.dh[y]?.[x + 1] ?? -2);
-      if (dl > 0) this.face(sx - TW / 2, yy + TH / 2, sx, yy + TH, dl * ZH, this.sideL[y][x], this.lip[y][x]);
-      if (dr > 0) this.face(sx, yy + TH, sx + TW / 2, yy + TH / 2, dr * ZH, this.sideR[y][x], this.lip[y][x] && shade(this.lip[y][x]!, -22));
-    }
-
-    g.fillStyle = this.top[y][x];
-    g.beginPath();
-    g.moveTo(sx, yy);
-    g.lineTo(sx + TW / 2, yy + TH / 2);
-    g.lineTo(sx, yy + TH);
-    g.lineTo(sx - TW / 2, yy + TH / 2);
-    g.closePath();
-    g.fill();
-
-    const hash = (Math.imul(x + 1, 73856093) ^ Math.imul(y + 1, 19349663)) >>> 0;
-    const spot = (n: number): Pt => {
-      const u = 0.2 + (((hash >> (n * 5)) & 15) / 15) * 0.6;
-      const v = 0.2 + (((hash >> (n * 5 + 2)) & 15) / 15) * 0.6;
-      return [sx + (u - v) * (TW / 2), yy + (u + v) * (TH / 2)];
-    };
-    const th = this.map.theme;
-    switch (cell.ground) {
-      case "water": {
-        g.strokeStyle = "rgba(255,255,255,0.45)";
-        g.lineWidth = 1;
-        const ph = Math.sin(this.time * 2 + hash) * 3;
-        g.beginPath();
-        g.moveTo(sx - 7 + ph, yy + 6);
-        g.lineTo(sx - 1 + ph, yy + 6);
-        g.moveTo(sx + 1 - ph, yy + 11);
-        g.lineTo(sx + 7 - ph, yy + 11);
-        g.stroke();
-        break;
-      }
-      case "path":
-        if (th.metal) {
-          g.strokeStyle = th.pathGlow ?? "#3dd6ff";
-          g.globalAlpha = 0.45 + 0.35 * Math.sin(this.time * 3 + x + y);
-          g.lineWidth = 1;
-          g.beginPath();
-          g.moveTo(sx - 8, yy + TH / 2 - 4);
-          g.lineTo(sx + 8, yy + TH / 2 + 4);
-          g.stroke();
-          g.globalAlpha = 1;
-        } else {
-          g.fillStyle = shade(th.path, -26);
-          const [a, b] = spot(0);
-          g.fillRect(Math.round(a), Math.round(b), 2, 1);
-          const [c, d] = spot(1);
-          g.fillRect(Math.round(c), Math.round(d), 1, 1);
-        }
-        break;
-      case "A":
-      case "B":
-        if (!th.metal) {
-          g.fillStyle = shade(this.top[y][x], -22);
-          const [a, b] = spot(0);
-          g.fillRect(Math.round(a), Math.round(b) - 1, 1, 2);
-          const [c, d] = spot(1);
-          g.fillRect(Math.round(c), Math.round(d) - 1, 1, 2);
-        }
-        break;
-    }
-    if (cell.decor === "flowers") {
-      const [a, b] = spot(2);
-      g.fillStyle = "#fff";
-      g.fillRect(Math.round(a), Math.round(b), 2, 2);
-      g.fillStyle = "#ff6f91";
-      const [c, d] = spot(0);
-      g.fillRect(Math.round(c), Math.round(d), 2, 2);
-      g.fillStyle = "#ffd23f";
-      const [e, f] = spot(1);
-      g.fillRect(Math.round(e), Math.round(f), 1, 2);
-    } else if (cell.decor === "cable") {
-      g.strokeStyle = "#7d86c9";
-      g.lineWidth = 1;
-      g.beginPath();
-      g.moveTo(sx - 9, yy + TH / 2 + 3);
-      g.lineTo(sx + 9, yy + TH / 2 - 3);
-      g.stroke();
-    } else if (cell.decor === "vent") {
-      g.fillStyle = "#1b2147";
-      g.fillRect(sx - 4, yy + TH / 2 - 1, 8, 2);
-    }
-
-    if (cell.obj) this.drawObj(cell, x, y, sx, yy, frame);
+  private treeEnv(): TreeDrawEnv {
+    return { g: this.ctx, time: this.time, leaf: this.map.theme.leaf, projX: (x, y) => this.projX(x, y), projY: (x, y, z) => this.projY(x, y, z) };
   }
 
-  /** Vách đứng của một ô (bên trái hoặc bên phải), sâu `d` điểm ảnh, kẻ vạch mỗi bậc cho giống bậc đá. */
-  private face(x0: number, y0: number, x1: number, y1: number, d: number, color: string, lip: string | null) {
-    const g = this.ctx;
-    g.fillStyle = color;
-    g.beginPath();
-    g.moveTo(x0, y0);
-    g.lineTo(x1, y1);
-    g.lineTo(x1, y1 + d);
-    g.lineTo(x0, y0 + d);
-    g.closePath();
-    g.fill();
-    if (lip) {
-      g.fillStyle = lip;
-      const l = Math.min(d, 3);
-      g.beginPath();
-      g.moveTo(x0, y0);
-      g.lineTo(x1, y1);
-      g.lineTo(x1, y1 + l);
-      g.lineTo(x0, y0 + l);
-      g.closePath();
-      g.fill();
-    }
-    if (d > ZH) {
-      g.strokeStyle = "rgba(0,0,0,0.18)";
-      g.lineWidth = 1;
-      g.beginPath();
-      for (let k = ZH; k < d; k += ZH) {
-        g.moveTo(x0, y0 + k);
-        g.lineTo(x1, y1 + k);
-      }
-      g.stroke();
-    }
-  }
-
-  // ------------------------------------------------------------ objects
-  private objSprite(cell: Cell, x: number, y: number, frame: number): { img: HTMLCanvasElement; scale: number } {
-    const th = this.map.theme;
-    let key: string = cell.obj!;
-    switch (cell.obj) {
-      case "tree": key += (x + y) % 3 === 0 ? ":a" : ":b"; break;
-      case "bush": key += (x * 7 + y) % 3 === 0 ? ":berry" : ":plain"; break;
-      case "server": key += `:${(frame + x + y) % 2}`; break;
-      case "desk": key += `:${frame % 2}`; break;
-      case "sign": key += `:${cell.label ?? "ABC"}`; break;
-    }
-    let img = this.spriteCache.get(key);
-    const scale = cell.obj === "tree" || cell.obj === "palm" ? 2.5 : 2;
-    if (!img) {
-      img = makeCanvas(32, 32);
-      const c = img.getContext("2d")!;
-      const OX = 8;
-      const OY = 12;
-      switch (cell.obj) {
-        case "tree": S.drawTree(c, OX, OY, (x + y) % 3 === 0 ? "#3a9e4f" : th.leaf); break;
-        case "palm": S.drawPalm(c, OX, OY); break;
-        case "bush": S.drawBush(c, OX, OY, "#3f9d4a", (x * 7 + y) % 3 === 0 ? "#ff5c7a" : undefined); break;
-        case "rock": S.drawRock(c, OX, OY); break;
-        case "crate": S.drawCrate(c, OX, OY); break;
-        case "server": S.drawServer(c, OX, OY, (frame + x + y) % 2); break;
-        case "desk": S.drawDesk(c, OX, OY, frame % 2 === 0 ? "#3dd6ff" : "#7ff5c8"); break;
-        case "plant": S.drawPlantPot(c, OX, OY); break;
-        case "sign": S.drawSign(c, OX, OY, cell.label ?? "ABC"); break;
-      }
-      this.spriteCache.set(key, img);
-    }
-    return { img, scale };
-  }
-
-  private drawObj(cell: Cell, x: number, y: number, sx: number, sy: number, frame: number) {
-    const { img, scale } = this.objSprite(cell, x, y, frame);
-    const ax = sx;
-    const ay = sy + TH / 2 + 3;
-    this.ctx.drawImage(img, Math.round(ax - 16 * scale), Math.round(ay - 26 * scale), 32 * scale, 32 * scale);
+  /** Tán lá mờ đi khi người chơi ở trên cây, hoặc đứng phía sau bị tán lá che. */
+  private canopyAlpha(onTree: boolean, behind: boolean) {
+    if (onTree) return 0.3;
+    if (!behind || !this.map.treeHouse) return 1;
+    const b = canopyBox(this.treeEnv(), this.map.treeHouse);
+    const px = this.projX(this.player.x, this.player.y);
+    const py = this.projY(this.player.x, this.player.y, this.player.z);
+    return px > b.x0 && px < b.x1 && py > b.y0 && py < b.y1 + 24 ? 0.4 : 1;
   }
 
   private drawPlayer() {
@@ -754,7 +620,16 @@ export class OverworldEngine {
     const sx = this.projX(p.x, p.y);
     const sy = this.projY(p.x, p.y, p.z);
     if (p.mode === "swim") this.drawSwimmer(sx, this.projY(p.x, p.y, 0) + 2, (p.z - WATER_Z) * ZH, this.sprites[p.dir][f]);
-    else {
+    else if (p.mode === "climb" && this.map.treeHouse) {
+      // bóng nhỏ dần trên mặt đất dưới chân thang
+      const th = this.map.treeHouse;
+      const k = Math.max(0.3, 1 - (p.z - th.g) / (th.z - th.g));
+      g.fillStyle = `rgba(0,0,0,${0.3 * k})`;
+      g.beginPath();
+      g.ellipse(sx, this.projY(p.x, th.y + 3 + 0.3, th.g), 8 * k, 4 * k, 0, 0, Math.PI * 2);
+      g.fill();
+      g.drawImage(this.sprites[p.dir][f], Math.round(sx - 16), Math.round(sy - 30), 32, 32);
+    } else {
       g.fillStyle = "rgba(0,0,0,0.3)";
       g.beginPath();
       g.ellipse(sx, sy, 8, 4, 0, 0, Math.PI * 2);
@@ -765,7 +640,7 @@ export class OverworldEngine {
     if (this.mark && this.time - this.mark.t < 0.6 && this.path.length) {
       const m = this.mark;
       const mx = this.projX(m.x, m.y);
-      const my = this.projY(m.x, m.y, this.map.height[m.y][m.x]);
+      const my = this.projY(m.x, m.y, this.tileH(m.x, m.y));
       g.strokeStyle = `rgba(255,255,255,${1 - (this.time - this.mark.t) / 0.6})`;
       g.lineWidth = 1.5;
       g.beginPath();

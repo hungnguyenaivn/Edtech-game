@@ -1,6 +1,7 @@
 import { type Cell, type GameMap, THEMES, isSolid } from "./mapgen";
 import { canStep, inStop } from "./movement";
 import { carveRiver } from "./river";
+import { type TreeHouse, clearTreeHouseArea, placeTreeHouse } from "./treehouse";
 import { hashString, rng } from "./sprites";
 
 /** Màu mái nhà của từng level — bé nhìn màu là nhớ "nhà số mấy". */
@@ -13,7 +14,7 @@ export const MAX_H = 5; // độ cao lớn nhất (đỉnh đồi)
 
 /** Một điểm dừng trên bản đồ: nhà level, hoặc kho báu ở cuối đường. Nhà chiếm 2×2 ô, cửa quay về phía +y. */
 export type Stop = { kind: "level" | "finish"; bx: number; by: number; h: number };
-export type OverworldMap = GameMap & { stops: Stop[]; height: number[][] };
+export type OverworldMap = GameMap & { stops: Stop[]; height: number[][]; treeHouse?: TreeHouse };
 
 export type StationInfo = {
   number: number;
@@ -220,6 +221,23 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
 
   if (theme.swimmable) carveRiver({ seed: hashString(slug + ":river"), cells, height, locked, w: W, h: H });
 
+  // Nhà trên cây: chỉ đổi độ cao (không tiêu thụ r()), vật cản quanh nó được dọn sau khi rải cây cối
+  const spawn = { x: stops[0].bx, y: stops[0].by + 3 };
+  const tree = theme.treeHouse
+    ? placeTreeHouse({
+        seed: hashString(slug + ":treehouse"),
+        w: W,
+        h: H,
+        cells,
+        height,
+        locked,
+        nearRoad,
+        stops,
+        spawn,
+        canStep: (ax, ay, bx, by) => canStep({ w: W, h: H, cells, height, stops, theme }, ax, ay, bx, by),
+      })
+    : undefined;
+
   // Viền bản đồ
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++)
@@ -247,8 +265,10 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
       if (!isSolid(c) && c.ground !== "path" && c.ground !== "sand" && r() < 0.08) c.decor = theme.decor[Math.floor(r() * theme.decor.length)];
     }
 
-  const spawn = { x: stops[0].bx, y: stops[0].by + 3 };
-  const moveMap = { w: W, h: H, cells, height, stops, theme };
+  if (tree) clearTreeHouseArea(cells, tree.th, tree.trail);
+
+  const treeHouse = tree?.th;
+  const moveMap = { w: W, h: H, cells, height, stops, theme, treeHouse };
   const reachable = grid(false);
   const bq: [number, number][] = [[spawn.x, spawn.y]];
   reachable[spawn.y][spawn.x] = true;
@@ -263,5 +283,5 @@ export function buildOverworld(slug: string, levelCount: number): OverworldMap {
     }
   }
 
-  return { w: W, h: H, cells, spawn, reachable, theme, stops, height };
+  return { w: W, h: H, cells, spawn, reachable, theme, stops, height, treeHouse };
 }

@@ -70,7 +70,7 @@ export default function WorldMap({ slug, avatarColor, skin, levels, questionsPer
     <div className="worldmap">
       <canvas ref={canvasRef} />
       <div className="wm-top">
-        <span className="wm-hint">Dùng ← ↑ ↓ → hoặc chạm để đi, leo dốc lên đồi{slug === "cyber-world" ? ", lội xuống sông để bơi 🏊" : ""} · Nhấn E để vào nhà</span>
+        <span className="wm-hint">Dùng ← ↑ ↓ → hoặc chạm để đi, leo dốc lên đồi{slug === "cyber-world" ? ", lội xuống sông để bơi 🏊, trèo thang lên nhà cây 🌳 (▲ lên, ▼ xuống)" : ""} · Nhấn E để vào nhà</span>
         {currentIdx >= 0 && (
           <button className="btn btn-primary" onClick={() => engineRef.current?.walkTo(currentIdx)}>📍 Tới level của em</button>
         )}

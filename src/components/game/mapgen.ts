@@ -37,6 +37,8 @@ export type Theme = {
   npc: "robot" | "scientist" | "sailor";
   /** Nước bơi được (chỉ trên bản đồ overworld); mặc định nước là vật cản. */
   swimmable?: boolean;
+  /** Có nhà trên cây leo được (chỉ trên bản đồ overworld). */
+  treeHouse?: boolean;
 };
 
 export const THEMES: Record<string, Theme> = {
@@ -127,6 +129,7 @@ export const THEMES: Record<string, Theme> = {
     metal: false,
     npc: "robot",
     swimmable: true,
+    treeHouse: true,
   },
 };
 
