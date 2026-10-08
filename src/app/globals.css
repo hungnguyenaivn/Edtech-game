@@ -309,3 +309,39 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .skin-card:focus-visible { outline: 3px solid var(--star, #ffd23f); outline-offset: 2px; }
 .skin-tick { position: absolute; top: 6px; right: 8px; font-style: normal; font-size: 13px; background: var(--sk); color: #1d1b2e; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
 @media (max-width: 720px) { .skins-wrap { grid-template-columns: 1fr; } .skin-hero { position: static; } }
+
+/* ---- Trận đánh boss */
+.boss-root { background: #070b1c; }
+.boss-stage { position: absolute; left: 0; right: 0; top: 60px; bottom: 48px; }
+.boss-hearts { gap: 2px; letter-spacing: 1px; }
+.boss-hearts i { font-style: normal; font-size: 18px; color: #ffffff33; }
+.boss-hearts i.on { color: #ff4d6d; }
+.boss-help { white-space: normal; text-align: center; max-width: min(92vw, 760px); }
+.boss-chip-icon { font-size: 30px; }
+.boss-actions { position: absolute; right: 14px; bottom: 18px; display: none; gap: 14px; align-items: flex-end; }
+.act-btn {
+  width: 72px; height: 72px; border-radius: 50%; border: 0; background: #ffffffd9; color: var(--ink);
+  font-size: 26px; box-shadow: 0 4px 0 #0004; touch-action: none; user-select: none;
+  display: grid; place-items: center; line-height: 1;
+}
+.act-btn span { font-size: 11px; font-weight: 800; margin-top: -10px; }
+.act-btn.act-attack { width: 84px; height: 84px; background: #ffd166; }
+.act-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #0004; }
+.boss-help .hint-touch { display: none; }
+@media (pointer: coarse) {
+  .boss-stage { top: 56px; bottom: 170px; }
+  .boss-actions { display: flex; }
+  .boss-help { bottom: 178px; font-size: 12px; padding: 6px 12px; }
+  .boss-help .hint-keys { display: none; }
+  .boss-help .hint-touch { display: inline; }
+  body:has(.boss-root) .version-tag { display: none; } /* không đè nút Đánh */
+}
+@media (max-width: 560px) {
+  .boss-hud { flex-wrap: wrap; padding: 8px 10px; gap: 6px; }
+  .boss-hud .hud-pill { padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+  .boss-hud .hud-pill b { font-size: 15px; }
+  .boss-hud .hud-dots { gap: 3px; }
+  .boss-hud .hud-dots i { width: 8px; height: 8px; }
+  .boss-hearts i { font-size: 14px; }
+  .boss-stage { top: 96px; }
+}
