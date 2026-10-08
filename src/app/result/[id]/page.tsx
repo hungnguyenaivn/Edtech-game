@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import Stars from "@/components/Stars";
 import { db, schema } from "@/db";
 import { requireStudent } from "@/lib/auth";
-import { passMark } from "@/lib/rules";
+import { isBossLevel, passMark } from "@/lib/rules";
 
 export const metadata = { title: "Kết quả · Vũ trụ Tri thức" };
 
@@ -60,8 +60,10 @@ export default async function ResultPage({ params }: { params: Promise<{ id: str
   const qById = new Map(qs.map((q) => [q.id, q]));
   const aById = new Map(answers.map((a) => [a.questionId, a]));
 
+  const boss = !review && isBossLevel(level.world.slug, level.number);
   const title = review
     ? attempt.correctCount === total ? "Ôn xong hết rồi!" : "Cố lên, ôn thêm nhé!"
+    : boss ? (attempt.stars > 0 ? "Hạ boss rồi! ⚔️" : "Boss vẫn còn đó!")
     : attempt.stars === 3 ? "Xuất sắc!" : attempt.stars === 2 ? "Giỏi lắm!" : attempt.stars === 1 ? "Qua level rồi!" : "Suýt nữa rồi!";
 
   return (

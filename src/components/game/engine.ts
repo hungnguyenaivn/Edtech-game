@@ -43,12 +43,13 @@ export class GameEngine {
     private map: GameMap,
     npcTiles: { x: number; y: number }[],
     avatarColor: string,
+    skin: string,
     private cb: EngineCallbacks,
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.frames = [renderMap(map, 0), renderMap(map, 1)];
     this.player = { x: map.spawn.x * T + T / 2, y: map.spawn.y * T + T - 2, dir: "down", moving: false, anim: 0 };
-    this.playerSprites = buildCharacter({ shirt: avatarColor, hair: "#2b1d16" });
+    this.playerSprites = buildCharacter({ shirt: avatarColor, hair: "#2b1d16", skin });
     this.npcs = npcTiles.map((p, i) => ({ tx: p.x, ty: p.y, state: "open", sprite: this.npcSprite(i) }));
     this.bind();
     this.resize();

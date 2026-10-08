@@ -14,4 +14,11 @@ export function starsFor(correct: number, total: number): number {
   return 1;
 }
 
+/** Level boss (đánh boss thời gian thực thay cho bản đồ hỏi NPC). Ôn tập vẫn dùng màn thường. */
+export const BOSS_LEVEL = { worldSlug: "cyber-world", number: 5 };
+
+export function isBossLevel(worldSlug: string, number: number): boolean {
+  return worldSlug === BOSS_LEVEL.worldSlug && number === BOSS_LEVEL.number;
+}
+
 export const AVATAR_COLORS = ["#ef5a5a", "#3b82f6", "#2fbf71", "#f59e0b", "#a855f7", "#ec4899"];

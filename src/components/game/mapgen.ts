@@ -35,6 +35,10 @@ export type Theme = {
   leaf: string;
   metal: boolean;
   npc: "robot" | "scientist" | "sailor";
+  /** Nước bơi được (chỉ trên bản đồ overworld); mặc định nước là vật cản. */
+  swimmable?: boolean;
+  /** Có nhà trên cây leo được (chỉ trên bản đồ overworld). */
+  treeHouse?: boolean;
 };
 
 export const THEMES: Record<string, Theme> = {
@@ -102,6 +106,30 @@ export const THEMES: Record<string, Theme> = {
     leaf: "#2f9e44",
     metal: false,
     npc: "sailor",
+  },
+  "cyber-world": {
+    slug: "cyber-world",
+    bg: "#0a1024",
+    groundA: "#1f3f56",
+    groundB: "#1a364c",
+    path: "#10263a",
+    pathGlow: "#22d3ee",
+    water: "#0e7490",
+    sand: "#2d5a6e",
+    wall: "#35526b",
+    border: "tree",
+    obstacles: [
+      { kind: "tree", w: 3 },
+      { kind: "server", w: 3 },
+      { kind: "crate", w: 1 },
+      { kind: "bush", w: 2 },
+    ],
+    decor: ["cable", "flowers"],
+    leaf: "#34d399",
+    metal: false,
+    npc: "robot",
+    swimmable: true,
+    treeHouse: true,
   },
 };
 

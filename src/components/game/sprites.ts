@@ -1,3 +1,5 @@
+import { type Armor, type Helm, type Skin, getSkin } from "@/lib/skins";
+
 /**
  * Pixel-art tự vẽ bằng code (không cần asset ngoài). Mỗi ô = 16×16 px, phóng to khi vẽ.
  */
@@ -110,24 +112,81 @@ const LEGS_SIDE = [
 export type Dir = "down" | "up" | "left" | "right";
 export type CharSprites = Record<Dir, Canvas[]>; // 3 khung: đứng, bước trái, bước phải
 
-export function buildCharacter(opts: { shirt: string; hair: string; pants?: string; skin?: string }): CharSprites {
+// Lớp mũ & giáp vẽ chồng lên nhân vật gốc. Bảng màu: a/b/c/d theo từng skin, f = viền mũ, k = nét viền.
+const BRIM = "..kffffffffffk..";
+const BACK = "..kffffffffffk..";
+const HELM_ROWS: Record<Helm, Record<Exclude<Dir, "left">, string[]>> = {
+  open: {
+    down: [BRIM, "", "", "", ""],
+    up: [BACK, BACK, BACK, BACK, ""],
+    right: [BRIM, "...kfffff.......", "...kffff........", "...kfff.........", ""],
+  },
+  cheek: {
+    down: [BRIM, "...ff..bb..ff...", "...ff..bb..ff...", "...ff......ff...", ""],
+    up: [BACK, BACK, BACK, BACK, ""],
+    right: [BRIM, "...kfffff.......", "...kffffff......", "...kffffff......", ""],
+  },
+  visor: {
+    down: [BRIM, "..kfffkkkkfffk..", "..kffffffffffk..", "..kffffffffffk..", "...kffffffffk..."],
+    up: [BACK, BACK, BACK, BACK, "...kffffffffk..."],
+    right: [BRIM, "...kffffffkkk...", "...kfffffffffk..", "...kffffffffk...", "...kfffffffk...."],
+  },
+  mask: {
+    down: [BRIM, "...ff......ff...", "...ffffffffff...", "...ffffffffff...", "....kffffffk...."],
+    up: [BACK, BACK, BACK, BACK, "....kffffffk...."],
+    right: [BRIM, "...kfffff.......", "...kffffffffff..", "...kffffffffff..", "....kffffffk...."],
+  },
+};
+// Giáp thân (4 hàng: ngực → thắt lưng). d = sáng, a = giáp, b = thắt lưng.
+const ARMOR_ROWS: Record<Armor, Record<"front" | "side", string[]>> = {
+  plate: {
+    front: ["...kddddddddk...", "..kdaaaaaaaadk..", "..ksaaaaaaaask..", "...kbbbbbbbbk..."],
+    side: ["....kdddddddk...", "....kdaaaaadk...", "....kdaaaaadk...", "....kbbbbbbbk..."],
+  },
+  cloth: {
+    front: ["....kddccddk....", "................", "................", "...kbbbbbbbbk..."],
+    side: ["................", "................", "................", "....kbbbbbbbk..."],
+  },
+};
+const HEAD_EMPTY = "................";
+
+function skinOverlay(skin: Skin, dir: Dir): Canvas {
+  const flip = dir === "left";
+  const rows = HELM_ROWS[skin.helm][flip ? "right" : dir];
+  const lower = [0, 1, 2, 3, 4].map((i) => rows[i] || HEAD_EMPTY);
+  const body = ARMOR_ROWS[skin.armor][dir === "down" || dir === "up" ? "front" : "side"];
+  const pal: Record<string, string> = { k: "#1d1b2e", ...skin.pal };
+  return fromAscii([...skin.top, ...lower, ...body], pal, flip);
+}
+
+export type CharOpts = { shirt: string; hair: string; pants?: string; skin?: string; tone?: string };
+
+export function buildCharacter(opts: CharOpts): CharSprites {
+  const skin = opts.skin ? getSkin(opts.skin) : null;
   const pal = {
     k: "#1d1b2e",
     h: opts.hair,
-    s: opts.skin ?? "#f7c9a0",
+    s: opts.tone ?? "#f7c9a0",
     e: "#1d1b2e",
     m: "#d98a72",
-    c: opts.shirt,
-    p: opts.pants ?? "#34406b",
-    b: "#4a2f25",
+    c: skin?.shirt ?? opts.shirt,
+    p: skin?.pants ?? opts.pants ?? "#34406b",
+    b: skin?.boots ?? "#4a2f25",
   };
-  const make = (head: string[], body: string[], legs: string[][], flip = false) =>
-    legs.map((l) => fromAscii([...head, ...body, ...l], pal, flip));
+  const make = (dir: Dir, head: string[], body: string[], legs: string[][]) => {
+    const flip = dir === "left";
+    const overlay = skin ? skinOverlay(skin, dir) : null;
+    return legs.map((l) => {
+      const c = fromAscii([...head, ...body, ...l], pal, flip);
+      if (overlay) c.getContext("2d")!.drawImage(overlay, 0, 0);
+      return c;
+    });
+  };
   return {
-    down: make(HEAD_DOWN, BODY_FRONT, LEGS_FRONT),
-    up: make(HEAD_UP, BODY_FRONT, LEGS_FRONT),
-    right: make(HEAD_SIDE, BODY_SIDE, LEGS_SIDE),
-    left: make(HEAD_SIDE, BODY_SIDE, LEGS_SIDE, true),
+    down: make("down", HEAD_DOWN, BODY_FRONT, LEGS_FRONT),
+    up: make("up", HEAD_UP, BODY_FRONT, LEGS_FRONT),
+    right: make("right", HEAD_SIDE, BODY_SIDE, LEGS_SIDE),
+    left: make("left", HEAD_SIDE, BODY_SIDE, LEGS_SIDE),
   };
 }
 
